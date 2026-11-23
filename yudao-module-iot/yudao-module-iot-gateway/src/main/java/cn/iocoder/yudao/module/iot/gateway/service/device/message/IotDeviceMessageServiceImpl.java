@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.iot.gateway.service.device.message;
 
+import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.lang.Assert;
+import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.exception.ErrorCode;
 import cn.iocoder.yudao.framework.common.exception.ServiceException;
@@ -16,19 +18,21 @@ import cn.iocoder.yudao.module.iot.core.script.IotScriptUtils;
 import cn.iocoder.yudao.module.iot.core.script.dto.IotScriptResult;
 import cn.iocoder.yudao.module.iot.core.script.dto.IotScriptSource;
 import cn.iocoder.yudao.module.iot.core.script.rhino.IotRhinoScriptExecutor;
+import cn.iocoder.yudao.module.iot.core.topic.property.IotDevicePropertySetResultDTO;
 import cn.iocoder.yudao.module.iot.core.util.IotDeviceMessageUtils;
 import cn.iocoder.yudao.module.iot.gateway.config.IotGatewayProperties;
 import cn.iocoder.yudao.module.iot.gateway.serialize.IotMessageSerializer;
 import cn.iocoder.yudao.module.iot.gateway.serialize.IotMessageSerializerManager;
 import cn.iocoder.yudao.module.iot.gateway.service.device.IotDeviceService;
 import cn.iocoder.yudao.module.iot.gateway.service.device.message.dto.IotDownstreamEncodeRespDTO;
+import cn.iocoder.yudao.module.iot.gateway.service.device.spool.IotDeviceMessageSpoolService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.util.Map;
 
 import static cn.iocoder.yudao.framework.common.exception.enums.GlobalErrorCodeConstants.SUCCESS;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -52,6 +56,8 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
 
     @Resource
     private IotDeviceMessageProducer deviceMessageProducer;
+    @Resource
+    private IotDeviceMessageSpoolService deviceMessageSpoolService;
 
     @Resource
     private IotMessageSerializerManager messageSerializerManager;
@@ -140,7 +146,7 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
 
     @Override
     public void sendDeviceMessage(IotDeviceMessage message,
-                                  String productKey, String deviceName, String serverId) {
+                                  String productKey, String deviceName, String serverId, IotProtocolTypeEnum protocol) {
         // 0. 标准 JSON 路径不接受透传方法：thing.raw.* 只能由网关的透传入口创建
         if (IotDeviceMessageUtils.isRawMethod(message.getMethod())) {
             throw exception(DEVICE_MESSAGE_RAW_METHOD_RESERVED);
@@ -150,7 +156,27 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
 
         // 2. 发送消息：raw 只能由服务端可信赋值，设备自己带上的一律清空
         message.setRaw(null);
-        sendDeviceMessage(message, device, serverId);
+        sendDeviceMessage(message, device, serverId, protocol);
+    }
+
+    @Override
+    public void sendDeviceStateMessage(IotDeviceMessage message, String productKey, String deviceName, String serverId) {
+        // 1.1 只接受状态消息：其它消息的发送失败不能吞掉
+        Assert.equals(IotDeviceMessageMethodEnum.STATE_UPDATE.getMethod(), message.getMethod(), "只能发送状态消息");
+        // 1.2 获取设备信息：设备不存在时照常抛出
+        IotDeviceRespDTO device = getDevice(productKey, deviceName);
+
+        // 2. 发送消息（不走离线暂存）：离线暂存已启用时，消息总线不可用只记日志，不阻断调用方（例如说设备认证）；
+        //    未启用时与原来一致，失败照常抛出
+        try {
+            sendDeviceMessage(message, device, serverId, null);
+        } catch (Exception ex) {
+            if (!deviceMessageSpoolService.isEnabled()) {
+                throw ex;
+            }
+            log.warn("[sendDeviceStateMessage][设备({}/{}) 状态消息发送消息总线失败，不阻断：{}]",
+                    productKey, deviceName, ex.getMessage());
+        }
     }
 
     /**
@@ -159,14 +185,27 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
      * @param message  消息
      * @param device   设备信息
      * @param serverId 设备连接的 serverId
+     * @param protocol 协议：协议入口的上行数据可以走离线暂存；为空时直发
      */
-    private void sendDeviceMessage(IotDeviceMessage message, IotDeviceRespDTO device, String serverId) {
-        message.setId(IotDeviceMessageUtils.generateMessageId()).setReportTime(LocalDateTime.now())
-                .setDeviceId(device.getId()).setTenantId(device.getTenantId()).setServerId(serverId);
-        // 特殊：如果设备没有指定 requestId，则使用 messageId
+    private void sendDeviceMessage(IotDeviceMessage message, IotDeviceRespDTO device, String serverId,
+                                   IotProtocolTypeEnum protocol) {
+        // 1.1 补全消息：接收时刻只取样一次，reportTime 与离线暂存的 spoolTime 一致；
+        //     spoolTime 只由离线暂存赋值，设备、脚本带上的一律清空
+        long now = System.currentTimeMillis();
+        message.setId(IotDeviceMessageUtils.generateMessageId()).setReportTime(LocalDateTimeUtil.of(now))
+                .setDeviceId(device.getId()).setTenantId(device.getTenantId()).setServerId(serverId)
+                .setSpoolTime(null);
+        // 1.2 特殊：如果设备没有指定 requestId，则使用 messageId
         if (StrUtil.isEmpty(message.getRequestId())) {
             message.setRequestId(message.getId());
         }
+
+        // 2.1 情况一：协议入口的属性、事件、批量上报，经离线暂存发送（消息总线不可用时写入暂存，暂存失败时抛出）
+        if (deviceMessageSpoolService.isSpoolableMessage(message, protocol)) {
+            deviceMessageSpoolService.sendSpoolableMessage(message, now);
+            return;
+        }
+        // 2.2 情况二：其它消息，直接发送到消息总线
         deviceMessageProducer.sendDeviceMessage(message);
     }
 
@@ -233,8 +272,10 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
         }
 
         // 4. 投递解析出的业务消息，带上原始字节
+        // 注意：截止只核对到这里。之后的直发、写入离线暂存可能晚于截止完成：HTTP 已先应答超时（101）时，消息仍会投递或补传，
+        // 设备重试会产生重复；写入离线暂存失败时，抛出 DEVICE_MESSAGE_SPOOL_REJECTED；直发被永久拒绝时，抛出 DEVICE_MESSAGE_REJECTED
         message.setRaw(raw);
-        sendDeviceMessage(message, device, serverId);
+        sendDeviceMessage(message, device, serverId, protocol);
         return message.getId();
     }
 
@@ -246,7 +287,7 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
     private String sendRawPostMessage(IotDeviceRespDTO device, String serverId, String raw) {
         IotDeviceMessage message = IotDeviceMessage.of(null, IotDeviceMessageMethodEnum.RAW_POST.getMethod(),
                 null, null, null, null).setRaw(raw);
-        sendDeviceMessage(message, device, serverId);
+        sendDeviceMessage(message, device, serverId, null);
         return message.getId();
     }
 
@@ -317,7 +358,7 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
             ErrorCode code = deviceError != null ? deviceError : SUCCESS;
             IotDeviceMessage reply = IotDeviceMessage.replyOf(request.getRequestId(), request.getMethod(), null,
                     code.getCode(), code.getMsg()).setRaw(IotDeviceMessageUtils.encodeRaw(payload));
-            sendDeviceMessage(reply, device, serverId);
+            sendDeviceMessage(reply, device, serverId, null);
             return;
         }
 
@@ -347,7 +388,37 @@ public class IotDeviceMessageServiceImpl implements IotDeviceMessageService {
             return;
         }
         reply.setRaw(IotDeviceMessageUtils.encodeRaw(payload));
-        sendDeviceMessage(reply, device, serverId);
+        sendDeviceMessage(reply, device, serverId, null);
+    }
+
+    // ========== 属性设置回复 ==========
+
+    @Override
+    public void sendPropertySetReply(IotDeviceMessage request, Map<String, IotDevicePropertySetResultDTO> results,
+                                     ErrorCode failure, String serverId) {
+        IotDeviceRespDTO device = deviceService.getDeviceFromCache(request.getDeviceId());
+        if (device == null) {
+            log.warn("[sendPropertySetReply][设备({}) 不存在]", request.getDeviceId());
+            return;
+        }
+        // 1.1 整条消息失败：没有逐项结果；逐项回复却没有任何结果时，同样按整条失败回复，避免误回成功
+        if (failure == null && MapUtil.isEmpty(results)) {
+            log.warn("[sendPropertySetReply][设备({}) 属性设置({}) 没有结果]", request.getDeviceId(), request.getRequestId());
+            failure = DEVICE_OFFLINE_OR_WRITE_FAILED;
+        }
+        IotDeviceMessage reply;
+        if (failure != null) {
+            reply = IotDeviceMessage.replyOf(request.getRequestId(), request.getMethod(), null,
+                    failure.getCode(), failure.getMsg());
+        } else {
+            // 1.2 逐项回复：全部成功时为成功，有失败（含缺失的结果）时整体为 PROPERTY_SET_FAILED
+            long failedCount = results.values().stream().filter(result -> result == null || !result.succeeded()).count();
+            Integer code = failedCount > 0 ? PROPERTY_SET_FAILED.getCode() : null;
+            String msg = failedCount > 0 ? StrUtil.format(PROPERTY_SET_FAILED.getMsg(), results.size(), failedCount) : null;
+            reply = IotDeviceMessage.replyOf(request.getRequestId(), request.getMethod(), results, code, msg);
+        }
+        // 2. 发送
+        sendDeviceMessage(reply, device, serverId, null);
     }
 
     // ========== 工具方法 ==========

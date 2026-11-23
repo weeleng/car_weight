@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.iot.gateway.service.device.message;
 
+import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.ReflectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.exception.ErrorCode;
@@ -14,10 +15,12 @@ import cn.iocoder.yudao.module.iot.core.mq.producer.IotDeviceMessageProducer;
 import cn.iocoder.yudao.module.iot.core.script.IotScriptExecutor;
 import cn.iocoder.yudao.module.iot.core.script.dto.IotScriptResult;
 import cn.iocoder.yudao.module.iot.core.script.dto.IotScriptSource;
+import cn.iocoder.yudao.module.iot.core.topic.property.IotDevicePropertySetResultDTO;
 import cn.iocoder.yudao.module.iot.gateway.config.IotGatewayProperties;
 import cn.iocoder.yudao.module.iot.gateway.serialize.IotMessageSerializerManager;
 import cn.iocoder.yudao.module.iot.gateway.service.device.IotDeviceService;
 import cn.iocoder.yudao.module.iot.gateway.service.device.message.dto.IotDownstreamEncodeRespDTO;
+import cn.iocoder.yudao.module.iot.gateway.service.device.spool.IotDeviceMessageSpoolService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +33,9 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static cn.iocoder.yudao.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
@@ -75,6 +80,8 @@ public class IotDeviceMessageServiceImplTest extends BaseMockitoUnitTest {
     private IotMessageSerializerManager messageSerializerManager;
     @Mock
     private IotScriptExecutor scriptExecutor;
+    @Mock
+    private IotDeviceMessageSpoolService deviceMessageSpoolService;
 
     private final IotGatewayProperties gatewayProperties = new IotGatewayProperties();
     private final IotDeviceRespDTO device = new IotDeviceRespDTO().setId(DEVICE_ID).setTenantId(TENANT_ID)
@@ -457,6 +464,26 @@ public class IotDeviceMessageServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testSendDeviceMessage_spool() {
+        // 准备参数：设备试图伪造 spoolTime
+        IotDeviceMessage message = IotDeviceMessage.requestOf("thing.property.post", Collections.singletonMap("t", 1))
+                .setSpoolTime(1L);
+        // mock 方法
+        mockDevice();
+        when(deviceMessageSpoolService.isSpoolableMessage(same(message), eq(IotProtocolTypeEnum.MQTT))).thenReturn(true);
+
+        // 调用
+        deviceMessageService.sendDeviceMessage(message, PRODUCT_KEY, DEVICE_NAME, SERVER_ID, IotProtocolTypeEnum.MQTT);
+
+        // 断言：交给离线暂存，不直接发送；spoolTime 被清空，暂存的接收时刻与 reportTime 是同一次取样
+        ArgumentCaptor<Long> spoolTimeCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(deviceMessageSpoolService).sendSpoolableMessage(same(message), spoolTimeCaptor.capture());
+        verifyNoInteractions(deviceMessageProducer);
+        assertNull(message.getSpoolTime());
+        assertEquals(LocalDateTimeUtil.toEpochMilli(message.getReportTime()), spoolTimeCaptor.getValue());
+    }
+
+    @Test
     public void testSendDeviceMessage_keepRequestId() {
         // 准备参数
         IotDeviceMessage message = IotDeviceMessage.requestOf("req-1", "thing.property.post",
@@ -495,6 +522,63 @@ public class IotDeviceMessageServiceImplTest extends BaseMockitoUnitTest {
         assertServiceException(() -> deviceMessageService.sendDeviceMessage(message, PRODUCT_KEY, DEVICE_NAME, SERVER_ID),
                 DEVICE_NOT_EXISTS, PRODUCT_KEY, DEVICE_NAME);
         verifyNoInteractions(deviceMessageProducer);
+    }
+
+    // ========== sendDeviceStateMessage ==========
+
+    @Test
+    public void testSendDeviceStateMessage_busFailureSpoolEnabled() {
+        // 准备参数
+        IotDeviceMessage message = buildStateMessage();
+        // mock 方法：离线暂存已启用；消息总线不可用（RPC 认证仍正常）
+        mockDevice();
+        when(deviceMessageSpoolService.isEnabled()).thenReturn(true);
+        doThrow(new IllegalStateException("redis down")).when(deviceMessageProducer).sendDeviceMessage(any());
+
+        // 调用：不抛出，不阻断调用方（例如说设备认证）
+        deviceMessageService.sendDeviceStateMessage(message, PRODUCT_KEY, DEVICE_NAME, SERVER_ID);
+
+        // 断言：直接发送，不走离线暂存
+        assertSame(message, captureSentMessage());
+        assertDeviceIdentity(message);
+        verify(deviceMessageSpoolService, never()).sendSpoolableMessage(any(), anyLong());
+    }
+
+    @Test
+    public void testSendDeviceStateMessage_busFailureSpoolDisabled() {
+        // mock 方法：离线暂存未启用；消息总线不可用
+        mockDevice();
+        when(deviceMessageSpoolService.isEnabled()).thenReturn(false);
+        doThrow(new IllegalStateException("redis down")).when(deviceMessageProducer).sendDeviceMessage(any());
+
+        // 调用，并断言异常：与原来一致，失败照常抛出
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> deviceMessageService
+                .sendDeviceStateMessage(buildStateMessage(), PRODUCT_KEY, DEVICE_NAME, SERVER_ID));
+        assertEquals("redis down", ex.getMessage());
+    }
+
+    @Test
+    public void testSendDeviceStateMessage_deviceNotExists() {
+        // 调用，并断言异常：设备不存在照常抛出
+        assertServiceException(() -> deviceMessageService.sendDeviceStateMessage(buildStateMessage(),
+                PRODUCT_KEY, DEVICE_NAME, SERVER_ID), DEVICE_NOT_EXISTS, PRODUCT_KEY, DEVICE_NAME);
+        verifyNoInteractions(deviceMessageProducer);
+    }
+
+    @Test
+    public void testSendDeviceStateMessage_notStateMessage() {
+        // 准备参数：属性上报
+        IotDeviceMessage message = IotDeviceMessage.requestOf("thing.property.post", Collections.singletonMap("t", 1));
+
+        // 调用，并断言异常：只接受状态消息，其它消息的发送失败不能吞掉
+        assertThrows(IllegalArgumentException.class, () -> deviceMessageService.sendDeviceStateMessage(message,
+                PRODUCT_KEY, DEVICE_NAME, SERVER_ID));
+        verifyNoInteractions(deviceService, deviceMessageProducer);
+    }
+
+    private static IotDeviceMessage buildStateMessage() {
+        return IotDeviceMessage.requestOf(IotDeviceMessageMethodEnum.STATE_UPDATE.getMethod(),
+                Collections.singletonMap("state", 1));
     }
 
     // ========== encodeDownstreamCommand ==========
@@ -854,6 +938,96 @@ public class IotDeviceMessageServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言：不回复
         verifyNoInteractions(deviceMessageProducer, scriptExecutor);
+    }
+
+    // ========== sendPropertySetReply ==========
+
+    @Test
+    public void testSendPropertySetReply_allSuccess() {
+        // 准备参数
+        Map<String, IotDevicePropertySetResultDTO> results = new LinkedHashMap<>();
+        results.put("power", IotDevicePropertySetResultDTO.success("0x00000000"));
+        // mock 方法
+        when(deviceService.getDeviceFromCache(DEVICE_ID)).thenReturn(device);
+
+        // 调用
+        deviceMessageService.sendPropertySetReply(buildPropertySet(), results, null, SERVER_ID);
+
+        // 断言：回复成功，data 为每个属性的结果
+        IotDeviceMessage reply = captureSentMessage();
+        assertEquals("req-1", reply.getRequestId());
+        assertEquals(IotDeviceMessageMethodEnum.PROPERTY_SET.getMethod(), reply.getMethod());
+        assertEquals(SUCCESS.getCode(), reply.getCode());
+        assertSame(results, reply.getData());
+        assertDeviceIdentity(reply);
+    }
+
+    @Test
+    public void testSendPropertySetReply_partialFailure() {
+        // 准备参数：2 个属性，1 个失败
+        Map<String, IotDevicePropertySetResultDTO> results = new LinkedHashMap<>();
+        results.put("power", IotDevicePropertySetResultDTO.success());
+        results.put("speed", IotDevicePropertySetResultDTO.failure(PROPERTY_SET_POINT_NOT_EXISTS));
+        // mock 方法
+        when(deviceService.getDeviceFromCache(DEVICE_ID)).thenReturn(device);
+
+        // 调用
+        deviceMessageService.sendPropertySetReply(buildPropertySet(), results, null, SERVER_ID);
+
+        // 断言：整体为属性设置失败，带失败数量；逐项结果原样带回
+        IotDeviceMessage reply = captureSentMessage();
+        assertEquals(PROPERTY_SET_FAILED.getCode(), reply.getCode());
+        assertEquals("属性设置失败：2 个属性中 1 个失败", reply.getMsg());
+        assertSame(results, reply.getData());
+    }
+
+    @Test
+    public void testSendPropertySetReply_failure() {
+        // 准备参数：整条消息失败
+        ErrorCode failure = new ErrorCode(PROPERTY_SET_PARAMS_INVALID.getCode(), "属性设置参数不合法：params 需要是非空的属性 Map");
+        // mock 方法
+        when(deviceService.getDeviceFromCache(DEVICE_ID)).thenReturn(device);
+
+        // 调用
+        deviceMessageService.sendPropertySetReply(buildPropertySet(), null, failure, SERVER_ID);
+
+        // 断言：回复错误码与文案，没有逐项结果
+        IotDeviceMessage reply = captureSentMessage();
+        assertEquals(failure.getCode(), reply.getCode());
+        assertEquals(failure.getMsg(), reply.getMsg());
+        assertNull(reply.getData());
+    }
+
+    @Test
+    public void testSendPropertySetReply_resultsInvalid() {
+        // 准备参数：有缺失的结果
+        Map<String, IotDevicePropertySetResultDTO> results = new LinkedHashMap<>();
+        results.put("power", IotDevicePropertySetResultDTO.success());
+        results.put("speed", null);
+        // mock 方法
+        when(deviceService.getDeviceFromCache(DEVICE_ID)).thenReturn(device);
+
+        // 调用：有缺失的结果、没有任何结果
+        deviceMessageService.sendPropertySetReply(buildPropertySet(), results, null, SERVER_ID);
+        deviceMessageService.sendPropertySetReply(buildPropertySet(), Collections.emptyMap(), null, SERVER_ID);
+
+        // 断言：缺失的结果按失败计数；没有任何结果时按整条失败回复，不误回成功
+        ArgumentCaptor<IotDeviceMessage> captor = ArgumentCaptor.forClass(IotDeviceMessage.class);
+        verify(deviceMessageProducer, times(2)).sendDeviceMessage(captor.capture());
+        assertEquals(PROPERTY_SET_FAILED.getCode(), captor.getAllValues().get(0).getCode());
+        assertEquals("属性设置失败：2 个属性中 1 个失败", captor.getAllValues().get(0).getMsg());
+        assertEquals(DEVICE_OFFLINE_OR_WRITE_FAILED.getCode(), captor.getAllValues().get(1).getCode());
+        assertNull(captor.getAllValues().get(1).getData());
+    }
+
+    @Test
+    public void testSendPropertySetReply_deviceNotExists() {
+        // 调用
+        deviceMessageService.sendPropertySetReply(buildPropertySet(),
+                Collections.singletonMap("power", IotDevicePropertySetResultDTO.success()), null, SERVER_ID);
+
+        // 断言：不回复
+        verifyNoInteractions(deviceMessageProducer);
     }
 
     // ========== 辅助方法 ==========

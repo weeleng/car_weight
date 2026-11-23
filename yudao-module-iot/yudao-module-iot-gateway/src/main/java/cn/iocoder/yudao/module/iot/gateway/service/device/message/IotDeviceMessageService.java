@@ -5,7 +5,10 @@ import cn.iocoder.yudao.module.iot.core.enums.IotProtocolTypeEnum;
 import cn.iocoder.yudao.module.iot.core.enums.IotSerializeTypeEnum;
 import cn.iocoder.yudao.module.iot.core.mq.message.IotDeviceMessage;
 import cn.iocoder.yudao.module.iot.core.script.dto.IotScriptSource;
+import cn.iocoder.yudao.module.iot.core.topic.property.IotDevicePropertySetResultDTO;
 import cn.iocoder.yudao.module.iot.gateway.service.device.message.dto.IotDownstreamEncodeRespDTO;
+
+import java.util.Map;
 
 /**
  * IoT 设备消息 Service 接口
@@ -65,8 +68,39 @@ public interface IotDeviceMessageService {
      * @param deviceName 设备名称
      * @param serverId   设备连接的 serverId
      */
+    default void sendDeviceMessage(IotDeviceMessage message,
+                                   String productKey, String deviceName, String serverId) {
+        sendDeviceMessage(message, productKey, deviceName, serverId, null);
+    }
+
+    /**
+     * 发送消息：指定协议时，属性上报、事件上报、批量上报可以走离线暂存（协议入口传入协议）
+     * <p>
+     * 离线暂存失败时，抛出 {@link cn.iocoder.yudao.module.iot.gateway.enums.ErrorCodeConstants#DEVICE_MESSAGE_SPOOL_REJECTED}，
+     * 调用方不能确认设备；消息被消息总线永久拒绝（例如说超过大小限制）时，抛出
+     * {@link cn.iocoder.yudao.module.iot.gateway.enums.ErrorCodeConstants#DEVICE_MESSAGE_REJECTED}，不暂存
+     *
+     * @param message    消息
+     * @param productKey 产品 Key
+     * @param deviceName 设备名称
+     * @param serverId   设备连接的 serverId
+     * @param protocol   协议；为空时不走离线暂存
+     */
     void sendDeviceMessage(IotDeviceMessage message,
-                           String productKey, String deviceName, String serverId);
+                           String productKey, String deviceName, String serverId, IotProtocolTypeEnum protocol);
+
+    /**
+     * 发送设备状态消息（thing.state.update）：设备不存在等校验失败照常抛出；
+     * 离线暂存已启用时，发送消息总线失败只记日志，不抛出；未启用时与 {@link #sendDeviceMessage} 一致，照常抛出
+     * <p>
+     * 用于认证成功后的上线：离线暂存已启用、消息总线不可用时，不阻断设备接入。状态消息不走离线暂存
+     *
+     * @param message    状态消息
+     * @param productKey 产品 Key
+     * @param deviceName 设备名称
+     * @param serverId   设备连接的 serverId
+     */
+    void sendDeviceStateMessage(IotDeviceMessage message, String productKey, String deviceName, String serverId);
 
     // DONE @AI：deadlineNanos 是不是收敛掉到 service 里？已收进来：协议只传入收到的时刻（入队之前取得），
     //  截止 = 收到时刻 + gateway.script.deadline，由本方法计算；协议不再读取截止配置
@@ -89,7 +123,8 @@ public interface IotDeviceMessageService {
      * @param receivedNanos 协议收到透传上报的时刻（System.nanoTime）：在交给 worker 排队之前取得，排队的时间也计入截止
      * @return 投递的消息编号
      * @throws cn.iocoder.yudao.framework.common.exception.ServiceException 载荷长度不合法（不投递）；
-     *         已启用但内容为空、脚本失败、超时、繁忙、输出不合法、超过截止（都不投递）
+     *         已启用但内容为空、脚本失败、超时、繁忙、输出不合法、超过截止（都不投递）；
+     *         解析出的属性上报、事件上报、批量上报，离线暂存失败（{@code DEVICE_MESSAGE_SPOOL_REJECTED}）
      */
     String sendRawMessage(byte[] payload, String productKey, String deviceName, String serverId,
                           IotProtocolTypeEnum protocol, long receivedNanos);
@@ -131,5 +166,21 @@ public interface IotDeviceMessageService {
      * @param serverId    所属协议实例的 serverId
      */
     void sendRawReply(IotDeviceMessage request, IotScriptSource source, byte[] payload, ErrorCode deviceError, String serverId);
+
+    /**
+     * 回复属性设置（thing.property.set）的标准路径结果：逐项回复每个属性的结果
+     * <ul>
+     *     <li>failure 非空：整条消息失败（例如参数不合法），data 为空；</li>
+     *     <li>否则：data 为 results（属性标识符 → 结果）；全部成功时 code 为成功，有失败时为 PROPERTY_SET_FAILED。</li>
+     * </ul>
+     * 会阻塞（加载设备、发送总线）：只能在 worker 线程调用
+     *
+     * @param request  原请求
+     * @param results  每个属性的结果；failure 非空时为 null
+     * @param failure  整条消息的失败；逐项回复时为 null
+     * @param serverId 所属协议实例的 serverId
+     */
+    void sendPropertySetReply(IotDeviceMessage request, Map<String, IotDevicePropertySetResultDTO> results,
+                              ErrorCode failure, String serverId);
 
 }
