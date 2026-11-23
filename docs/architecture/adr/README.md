@@ -1,46 +1,48 @@
 # ADR 索引
 
-索引仅登记待导入条目。正文应按已批准原文导入并登记来源，编号本身不提供决策内容。
+[决策来源与证据矩阵](decision-evidence-matrix.md)记录逐项清点结果、规范证据和待核验问题。[ADR 正文模板](ADR-TEMPLATE.md)用于后续按已批准原文导入。
 
-| 编号 | 正文状态 |
-| --- | --- |
-| ADR-001 | 待导入已批准正文 |
-| ADR-002 | 待导入已批准正文 |
-| ADR-003 | 待导入已批准正文 |
-| ADR-004 | 待导入已批准正文 |
-| ADR-005 | 待导入已批准正文 |
-| ADR-006 | 待导入已批准正文 |
-| ADR-007 | 待导入已批准正文 |
-| ADR-008 | 待导入已批准正文 |
-| ADR-009 | 待导入已批准正文 |
-| ADR-010 | 待导入已批准正文 |
-| ADR-011 | 待导入已批准正文 |
-| ADR-012 | 待导入已批准正文 |
-| ADR-013 | 待导入已批准正文 |
-| ADR-014 | 待导入已批准正文 |
-| ADR-015 | 待导入已批准正文 |
-| ADR-016 | 待导入已批准正文 |
-| ADR-017 | 待导入已批准正文 |
-| ADR-018 | 待导入已批准正文 |
-| ADR-019 | 待导入已批准正文 |
-| ADR-020 | 待导入已批准正文 |
-| ADR-021 | 待导入已批准正文 |
-| ADR-022 | 待导入已批准正文 |
-| ADR-023 | 待导入已批准正文 |
-| ADR-024 | 待导入已批准正文 |
-| ADR-025 | 待导入已批准正文 |
-| ADR-026 | 待导入已批准正文 |
-| ADR-027 | 待导入已批准正文 |
-| ADR-028 | 待导入已批准正文 |
-| ADR-029 | 待导入已批准正文 |
-| ADR-030 | 待导入已批准正文 |
-| ADR-031 | 待导入已批准正文 |
-| ADR-032 | 待导入已批准正文 |
-| ADR-033 | 待导入已批准正文 |
-| ADR-034 | 待导入已批准正文 |
-| ADR-035 | 待导入已批准正文 |
-| ADR-036 | 待导入已批准正文 |
-| ADR-037 | 待导入已批准正文 |
-| ADR-038 | 待导入已批准正文 |
-| ADR-039 | 待导入已批准正文 |
-| ADR-040 | 待导入已批准正文 |
+基线中的 40 个条目仅有编号与占位状态。原始主题、编号对应的来源及审批证据均待核验。六项规范与 ACR 核对记录提供专题要点，具体 ADR 编号映射待取得原文后确认。
+
+| 编号 | 决策主题 | 当前可用来源 | 正文与审批状态 |
+| --- | --- | --- | --- |
+| <a name="adr-001"></a>ADR-001 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-001) |
+| <a name="adr-002"></a>ADR-002 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-002) |
+| <a name="adr-003"></a>ADR-003 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-003) |
+| <a name="adr-004"></a>ADR-004 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-004) |
+| <a name="adr-005"></a>ADR-005 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-005) |
+| <a name="adr-006"></a>ADR-006 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-006) |
+| <a name="adr-007"></a>ADR-007 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-007) |
+| <a name="adr-008"></a>ADR-008 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-008) |
+| <a name="adr-009"></a>ADR-009 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-009) |
+| <a name="adr-010"></a>ADR-010 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-010) |
+| <a name="adr-011"></a>ADR-011 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-011) |
+| <a name="adr-012"></a>ADR-012 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-012) |
+| <a name="adr-013"></a>ADR-013 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-013) |
+| <a name="adr-014"></a>ADR-014 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-014) |
+| <a name="adr-015"></a>ADR-015 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-015) |
+| <a name="adr-016"></a>ADR-016 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-016) |
+| <a name="adr-017"></a>ADR-017 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-017) |
+| <a name="adr-018"></a>ADR-018 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-018) |
+| <a name="adr-019"></a>ADR-019 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-019) |
+| <a name="adr-020"></a>ADR-020 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-020) |
+| <a name="adr-021"></a>ADR-021 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-021) |
+| <a name="adr-022"></a>ADR-022 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-022) |
+| <a name="adr-023"></a>ADR-023 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-023) |
+| <a name="adr-024"></a>ADR-024 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-024) |
+| <a name="adr-025"></a>ADR-025 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-025) |
+| <a name="adr-026"></a>ADR-026 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-026) |
+| <a name="adr-027"></a>ADR-027 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-027) |
+| <a name="adr-028"></a>ADR-028 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-028) |
+| <a name="adr-029"></a>ADR-029 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-029) |
+| <a name="adr-030"></a>ADR-030 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-030) |
+| <a name="adr-031"></a>ADR-031 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-031) |
+| <a name="adr-032"></a>ADR-032 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-032) |
+| <a name="adr-033"></a>ADR-033 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-033) |
+| <a name="adr-034"></a>ADR-034 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-034) |
+| <a name="adr-035"></a>ADR-035 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-035) |
+| <a name="adr-036"></a>ADR-036 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-036) |
+| <a name="adr-037"></a>ADR-037 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-037) |
+| <a name="adr-038"></a>ADR-038 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-038) |
+| <a name="adr-039"></a>ADR-039 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-039) |
+| <a name="adr-040"></a>ADR-040 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-040) |
