@@ -37,7 +37,7 @@ ENG-001B-02C-01 提供主体、服务点和计费责任的拟议模型。[ADR-01
 
 ## 与其他 ADR/ACR 的关系
 
-项目关系见 [ADR-004](ADR-004-organization-and-project.md)，垃圾桶资产边界见 [ADR-017](ADR-017-asset-and-device-management.md)。沿用 ADR-016 的历史绑定与 ADR-024 的计费资格。隐私采集、保留及脱敏关联候选 [ADR-030](README.md#adr-030)，正文待导入。适用 C-02、C-03、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+项目关系见 [ADR-004](ADR-004-organization-and-project.md)，垃圾桶资产边界见 [ADR-017](ADR-017-asset-and-device-management.md)。沿用 ADR-016 的历史绑定与 ADR-024 的计费资格。隐私采集、保留及脱敏关联候选 [ADR-030](ADR-030-personal-information-and-data-protection.md)，正文为 Proposed，待批准。适用 C-02、C-03、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

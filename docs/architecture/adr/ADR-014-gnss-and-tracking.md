@@ -37,7 +37,7 @@ ENG-001B-02B-02 提供定位顺序、轨迹和作业位置关联的拟议要点�
 
 ## 与其他 ADR/ACR 的关系
 
-遵循 ADR-006、C-02、C-05，与 [ADR-015](ADR-015-weighing-model.md)共享作业时间语义。[ADR-010](README.md#adr-010)是尚待导入的候选依赖。约定来源见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+遵循 ADR-006、C-02、C-05，与 [ADR-015](ADR-015-weighing-model.md)共享作业时间语义。[ADR-010](ADR-010-coordinate-system.md)是候选依赖，正文为 Proposed，待批准。约定来源见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

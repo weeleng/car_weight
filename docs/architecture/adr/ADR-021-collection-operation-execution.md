@@ -40,7 +40,7 @@ ENG-001B-02C-03 提供现场作业候选流程。[ADR-013](ADR-013-vwcp-protocol
 
 ## 与其他 ADR/ACR 的关系
 
-遵循 [ADR-012](ADR-012-iot-ingestion.md)、ADR-013、[ADR-015](ADR-015-weighing-model.md)、[ADR-016](ADR-016-rfid-identification.md)、[ADR-018](ADR-018-merchant-and-waste-producer.md)、[ADR-020](ADR-020-operation-planning-and-dispatch.md)及 [ADR-024](ADR-024-contract-and-billing.md)。终端同步关联候选 [ADR-027](README.md#adr-027)，正文待导入。遵循 C-02、[C-03](../standards/weight-conventions.md)、[C-04](../standards/iot-ack-and-durability.md)、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。RabbitMQ 与 SQLite 双暂存冲突仍为生产启用阻断。
+遵循 [ADR-012](ADR-012-iot-ingestion.md)、ADR-013、[ADR-015](ADR-015-weighing-model.md)、[ADR-016](ADR-016-rfid-identification.md)、[ADR-018](ADR-018-merchant-and-waste-producer.md)、[ADR-020](ADR-020-operation-planning-and-dispatch.md)及 [ADR-024](ADR-024-contract-and-billing.md)。终端同步关联候选 [ADR-027](ADR-027-mobile-and-vehicle-terminals.md)，正文为 Proposed，待批准。遵循 C-02、[C-03](../standards/weight-conventions.md)、[C-04](../standards/iot-ack-and-durability.md)、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。RabbitMQ 与 SQLite 双暂存冲突仍为生产启用阻断。
 
 ## 验证要求
 

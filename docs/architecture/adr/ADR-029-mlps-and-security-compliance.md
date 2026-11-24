@@ -45,7 +45,7 @@ MySQL、Redis、RabbitMQ 管理端和内部服务不得默认暴露至互联网�
 
 ## 与其他 ADR/ACR 的关系
 
-关联 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)、[ADR-030](ADR-030-personal-information-and-data-protection.md)、[ADR-031](ADR-031-authentication-and-access-security.md)、[ADR-032](ADR-032-security-audit-and-traceability.md)、[ADR-033](ADR-033-cryptography-and-iot-security.md)。拓扑关联候选 [ADR-038](README.md#adr-038)，正文待导入。遵循 C-01、[C-04](../standards/iot-ack-and-durability.md)、C-05、[C-06](../standards/module-boundaries.md)，证据见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+关联 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)、[ADR-030](ADR-030-personal-information-and-data-protection.md)、[ADR-031](ADR-031-authentication-and-access-security.md)、[ADR-032](ADR-032-security-audit-and-traceability.md)、[ADR-033](ADR-033-cryptography-and-iot-security.md)。拓扑关联候选 [ADR-038](ADR-038-deployment-and-environment-management.md)，正文为 Proposed，待批准。遵循 C-01、[C-04](../standards/iot-ack-and-durability.md)、C-05、[C-06](../standards/module-boundaries.md)，证据见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

@@ -39,7 +39,7 @@ ENG-001B-02C-02 提供线路模型及 P0 候选范围。[ADR-017](ADR-017-asset-
 
 ## 与其他 ADR/ACR 的关系
 
-空间与偏离见 ADR-009、[ADR-011](ADR-011-geofencing.md)和 [ADR-014](ADR-014-gnss-and-tracking.md)。车辆与主数据遵循 ADR-017、ADR-018。计划及调度、完成条件、偏离阈值及持续时间和告警规则分别关联候选 [ADR-020](README.md#adr-020)、[ADR-021](README.md#adr-021)、[ADR-022](README.md#adr-022)，正文仍待导入。适用 C-02、C-05、[C-06](../standards/module-boundaries.md)，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+空间与偏离见 ADR-009、[ADR-011](ADR-011-geofencing.md)和 [ADR-014](ADR-014-gnss-and-tracking.md)。车辆与主数据遵循 ADR-017、ADR-018。计划及调度、完成条件、偏离阈值及持续时间和告警规则分别关联候选 [ADR-020](ADR-020-operation-planning-and-dispatch.md)、[ADR-021](ADR-021-collection-operation-execution.md)、[ADR-022](ADR-022-event-and-alarm-management.md)，正文为 Proposed，待批准。适用 C-02、C-05、[C-06](../standards/module-boundaries.md)，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

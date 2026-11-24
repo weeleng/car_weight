@@ -53,7 +53,7 @@ ENG-001B-02C-05 提供候选数字。已只读核查 [application-local.yaml](..
 
 ## 与其他 ADR/ACR 的关系
 
-关联 [ADR-006](ADR-006-database-architecture.md)、[ADR-012](ADR-012-iot-ingestion.md)、[ADR-014](ADR-014-gnss-and-tracking.md)、[ADR-025](ADR-025-statistics-and-reporting.md)、[ADR-028](ADR-028-third-party-integration.md)、[ADR-029](ADR-029-mlps-and-security-compliance.md)、[ADR-032](ADR-032-security-audit-and-traceability.md)、[ADR-033](ADR-033-cryptography-and-iot-security.md)。恢复关联候选 [ADR-037](README.md#adr-037)，正文待导入。遵循 C-01 至 C-06，证据见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+关联 [ADR-006](ADR-006-database-architecture.md)、[ADR-012](ADR-012-iot-ingestion.md)、[ADR-014](ADR-014-gnss-and-tracking.md)、[ADR-025](ADR-025-statistics-and-reporting.md)、[ADR-028](ADR-028-third-party-integration.md)、[ADR-029](ADR-029-mlps-and-security-compliance.md)、[ADR-032](ADR-032-security-audit-and-traceability.md)、[ADR-033](ADR-033-cryptography-and-iot-security.md)。恢复关联候选 [ADR-037](ADR-037-high-availability-and-disaster-recovery.md)，正文为 Proposed，待批准。遵循 C-01 至 C-06，证据见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

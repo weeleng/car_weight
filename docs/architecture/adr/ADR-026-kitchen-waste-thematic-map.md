@@ -40,7 +40,7 @@ ENG-001B-02C-03 提供专题视图、授权及性能候选方案。已只读核�
 
 ## 与其他 ADR/ACR 的关系
 
-遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)的权限，[ADR-009](ADR-009-gis-architecture.md)、[ADR-010](ADR-010-coordinate-system.md)、[ADR-011](ADR-011-geofencing.md)的空间规范及 [ADR-014](ADR-014-gnss-and-tracking.md)的轨迹和质量边界。统计口径关联候选 [ADR-025](README.md#adr-025)，更新方案关联候选 [ADR-035](README.md#adr-035)、[ADR-036](README.md#adr-036)，正文均待导入。遵循 C-02、C-03、C-04、C-05、[C-06](../standards/module-boundaries.md)，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)的权限，[ADR-009](ADR-009-gis-architecture.md)、[ADR-010](ADR-010-coordinate-system.md)、[ADR-011](ADR-011-geofencing.md)的空间规范及 [ADR-014](ADR-014-gnss-and-tracking.md)的轨迹和质量边界。统计口径关联候选 [ADR-025](ADR-025-statistics-and-reporting.md)，更新方案关联候选 [ADR-035](ADR-035-capacity-and-performance.md)、[ADR-036](ADR-036-cache-and-asynchronous-processing.md)，正文为 Proposed，待批准。遵循 C-02、C-03、C-04、C-05、[C-06](../standards/module-boundaries.md)，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

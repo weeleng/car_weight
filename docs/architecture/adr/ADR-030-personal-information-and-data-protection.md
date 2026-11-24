@@ -38,7 +38,7 @@ ENG-001B-02C-04 提供分类、保护和合规核查范围。已只读核查 [Ap
 
 ## 与其他 ADR/ACR 的关系
 
-租户及项目遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)，原始事实边界见 [ADR-006](ADR-006-database-architecture.md)，地图见 [ADR-026](ADR-026-kitchen-waste-thematic-map.md)。共享及认证见 [ADR-028](ADR-028-third-party-integration.md)、[ADR-031](ADR-031-authentication-and-access-security.md)，密码体系候选 [ADR-033](README.md#adr-033)正文待导入。遵循 C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+租户及项目遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)，原始事实边界见 [ADR-006](ADR-006-database-architecture.md)，地图见 [ADR-026](ADR-026-kitchen-waste-thematic-map.md)。共享及认证见 [ADR-028](ADR-028-third-party-integration.md)、[ADR-031](ADR-031-authentication-and-access-security.md)，密码体系候选 [ADR-033](ADR-033-cryptography-and-iot-security.md)正文为 Proposed，待批准。遵循 C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 
