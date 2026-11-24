@@ -7,3 +7,5 @@
 | ACR-001 | 待导入已批准正文 |
 
 现有要点及来源见 [ACR-001 核对记录](ACR-001-reconciliation.md)。
+
+[ENG-001B-03 人工审批准备](ACR-001-reconciliation.md#当前核对eng-001b-03)记录证据查找、40 份 Proposed、18 项待决策及 7 项生产门槛。ACR-001 正文与审批状态仍按上表记录。
