@@ -43,7 +43,7 @@ ENG-001B-02C-04 提供认证和会话候选约束。已只读核查：
 
 ## 与其他 ADR/ACR 的关系
 
-遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)、[ADR-013](ADR-013-vwcp-protocol.md)、[ADR-027](ADR-027-mobile-and-vehicle-terminals.md)、[ADR-028](ADR-028-third-party-integration.md)及 [ADR-030](ADR-030-personal-information-and-data-protection.md)。成功 ACK 见 [C-04](../standards/iot-ack-and-durability.md)。设备安全候选 [ADR-033](README.md#adr-033)正文待导入。遵循 C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+遵循 [ADR-003](ADR-003-saas-tenancy.md)、[ADR-004](ADR-004-organization-and-project.md)、[ADR-005](ADR-005-user-and-permissions.md)、[ADR-013](ADR-013-vwcp-protocol.md)、[ADR-027](ADR-027-mobile-and-vehicle-terminals.md)、[ADR-028](ADR-028-third-party-integration.md)及 [ADR-030](ADR-030-personal-information-and-data-protection.md)。成功 ACK 见 [C-04](../standards/iot-ack-and-durability.md)。设备安全候选 [ADR-033](ADR-033-cryptography-and-iot-security.md)正文为 Proposed，待批准。遵循 C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

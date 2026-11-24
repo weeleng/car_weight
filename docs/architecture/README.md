@@ -11,10 +11,12 @@
 | [事务边界](standards/transaction-boundaries.md) | C-05 本地事务与消息投递 | 已整理已提供要点 |
 | [模块边界](standards/module-boundaries.md) | C-06 模块映射与交互约束 | 已整理已提供要点 |
 | [ACR-001 核对记录](acr/ACR-001-reconciliation.md) | 六项要点与技术基线的核对 | 待核对完整批准正文 |
-| [adr/README.md](adr/README.md) | ADR-001 至 ADR-040 索引 | 待导入已批准正文 |
+| [adr/README.md](adr/README.md) | ADR-001 至 ADR-040 索引 | 40 份 Proposed，历史批准原文待核验 |
 | [acr/README.md](acr/README.md) | ACR-001 索引 | 待导入已批准正文 |
 | [工程工作流](../engineering/codex-workflow.md) | Codex 分支、验证和交付约定 | ENG-001A 建立 |
 | [验证矩阵](../engineering/validation-matrix.md) | 变更触发条件、证据和待验证项 | ENG-001A 建立 |
 | [Gateway 分析](../engineering/iot-gateway-analysis.md) | 上游实现与可靠性边界 | 已有源码核查，生产阻断待解决 |
 
-决策索引只登记编号与导入状态。有获准的正文时，按其原文导入并登记来源及对应路径。需要引用尚未导入的决策时，由任务负责人提供已批准正文。
+ADR 索引链接到候选草案和证据矩阵。历史批准原文由任务负责人提供，核验后登记来源与对应路径。
+
+[ENG-001B-02D 全局一致性审核](reviews/ENG-001B-02D-consistency-review.md)记录逐项结论、待决策事项、实施差距与依赖路线。

@@ -39,7 +39,7 @@ ENG-001B-02C-03 提供设施、运输批次和交付候选流程。[ADR-015](ADR
 
 ## 与其他 ADR/ACR 的关系
 
-围栏与到厂见 [ADR-011](ADR-011-geofencing.md)，执行与异常见 [ADR-021](ADR-021-collection-operation-execution.md)、[ADR-022](ADR-022-event-and-alarm-management.md)。遵循 ADR-015、ADR-024，第三方接口关联候选 [ADR-028](README.md#adr-028)，正文待导入。遵循 C-02、[C-03](../standards/weight-conventions.md)、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+围栏与到厂见 [ADR-011](ADR-011-geofencing.md)，执行与异常见 [ADR-021](ADR-021-collection-operation-execution.md)、[ADR-022](ADR-022-event-and-alarm-management.md)。遵循 ADR-015、ADR-024，第三方接口关联候选 [ADR-028](ADR-028-third-party-integration.md)，正文为 Proposed，待批准。遵循 C-02、[C-03](../standards/weight-conventions.md)、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

@@ -37,7 +37,7 @@ ENG-001B-02C-01 提供项目、组织协同及授权建议。已读取 [DeptCont
 
 ## 与其他 ADR/ACR 的关系
 
-租户与权限边界见 [ADR-003](ADR-003-saas-tenancy.md)及 [ADR-005](ADR-005-user-and-permissions.md)。设备和主体服务关系见 [ADR-017](ADR-017-asset-and-device-management.md)、[ADR-018](ADR-018-merchant-and-waste-producer.md)。行政区、电子围栏、作业区坐标系及空间计算关联 [ADR-009](README.md#adr-009)、[ADR-010](README.md#adr-010)、[ADR-011](README.md#adr-011)候选依赖，正文仍待导入。适用 C-02、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+租户与权限边界见 [ADR-003](ADR-003-saas-tenancy.md)及 [ADR-005](ADR-005-user-and-permissions.md)。设备和主体服务关系见 [ADR-017](ADR-017-asset-and-device-management.md)、[ADR-018](ADR-018-merchant-and-waste-producer.md)。行政区、电子围栏、作业区坐标系及空间计算关联 [ADR-009](ADR-009-gis-architecture.md)、[ADR-010](ADR-010-coordinate-system.md)、[ADR-011](ADR-011-geofencing.md)候选依赖，正文为 Proposed，待批准。适用 C-02、C-05、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 

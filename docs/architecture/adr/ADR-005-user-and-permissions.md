@@ -38,7 +38,7 @@ ENG-001B-02C-01 提供项目级权限、终端身份、高风险操作和审计�
 
 ## 与其他 ADR/ACR 的关系
 
-项目及租户边界见 [ADR-004](ADR-004-organization-and-project.md)与 [ADR-003](ADR-003-saas-tenancy.md)，接口授权遵循 [ADR-008](ADR-008-api-conventions.md)。用户认证、Token 生命周期、设备安全关联候选 [ADR-031](README.md#adr-031)和 [ADR-033](README.md#adr-033)，审计存储、保留和防篡改关联候选 [ADR-032](README.md#adr-032)，正文均待导入。适用 C-01、C-02、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
+项目及租户边界见 [ADR-004](ADR-004-organization-and-project.md)与 [ADR-003](ADR-003-saas-tenancy.md)，接口授权遵循 [ADR-008](ADR-008-api-conventions.md)。用户认证、Token 生命周期、设备安全关联候选 [ADR-031](ADR-031-authentication-and-access-security.md)和 [ADR-033](ADR-033-cryptography-and-iot-security.md)，审计存储、保留和防篡改关联候选 [ADR-032](ADR-032-security-audit-and-traceability.md)，正文为 Proposed，待批准。适用 C-01、C-02、C-06，出处见 [ACR-001 核对记录](../acr/ACR-001-reconciliation.md)。
 
 ## 验证要求
 
