@@ -164,12 +164,14 @@ Gateway 日志报告 Java 21.0.13.1，协议监听保持源码的默认禁用状
 
 ## CI、Jenkins 和交付范围
 
-- Actions 配置解析使用 PyYAML BaseLoader，判断原触发条件、现有 actions、Temurin 21、缓存及权限字段。提取 Maven 安装步骤用 `bash -eo pipefail` 本地实际执行，下载、SHA512、解压和 PATH 均通过，随后运行同一工具链检查脚本退出 0。构建步骤做 Bash 语法检查，默认干净构建证据见上文。远程 Actions 执行及仓库/组织访问权限另行记录。
+- Actions 配置解析使用 PyYAML BaseLoader，判断原触发条件、现有 actions、Temurin 21、缓存及权限字段。提取 Maven 安装步骤用 `bash -eo pipefail` 本地实际执行，下载、SHA512、解压和 PATH 均通过，随后运行同一工具链检查脚本退出 0。构建步骤做 Bash 语法检查，默认干净构建证据见上文。`gh workflow run maven.yml --repo weeleng/car_weight --ref engineering/eng-002a` 在读取工作流 API 时返回 Forbidden（退出 1），此次未触发远程构建。既有 push 触发不含任务分支，远程执行待有权限的人员验证。
 - Jenkins 远程 shell 片段提取后用 `bash -n` 检查，通过。用临时 app.env 运行其 Java 预检函数，Temurin 21 退出 0，JDK 17 按预期退出 1。共享构建检查给 JDK 17 同样退出 1。未执行真实 Jenkins Job、SSH 部署或远端工具配置。管理员需配置 `jdk21`、`maven-3.9.12`，验证 JVM 与目标服务器实际运行环境。
-- 核对从起始 SHA 至交付的文件清单和 Git 空白，核对 POM 差异仅修改 compiler release 属性且版本、模块装配不变。常见凭证模式检查仅针对变更内容。C-01 及架构报告按任务保持原样，引用其中的旧 CI 配置时应按其历史基线理解。
+- 核对从起始 SHA 至交付的文件清单和 Git 空白，核对 POM 差异仅修改 compiler release 属性且版本、模块装配不变。`git diff --check`、`git diff --cached --check` 及基线范围检查均退出 0。Python 检查确认 6 个允许文件、21 个有效报告相对链接、POM 仅 release 属性变化，变更中未发现常见凭证模式。C-01 及架构报告按任务保持原样，引用其中的旧 CI 配置时应按其历史基线理解。
 
 ## 验收、待验证项及回滚
 
-**工作包 A 的本地核心验收通过。** JDK 21、Maven 3.9.12、默认及隔离 IoT Reactor、Java 17 产物与 API 边界、Gateway exec 和 23 项指定测试均有实测证据。最小运行及 Server 容器验证通过。GAP-001 的配置及本地验证已覆盖，远程 CI 和实际部署的全链路尚未验收。VAL-002 仓库分支保护和 Ruleset 由有权限人员核验，未改仓库设置。Spring Boot 3.5.16、MySQL 8.4、模块化单体及独立 Gateway 边界保持。完整测试套件、远端 Jenkins、生产部署、真实设备和消息链路未执行。BLOCK-001 保持开放，生产启用须经独立专项。
+**工作包 A 的本地核心验收通过。** JDK 21、Maven 3.9.12、默认及隔离 IoT Reactor、Java 17 产物与 API 边界、Gateway exec 和 23 项指定测试均有实测证据。最小运行及 Server 容器验证通过。GAP-001 的配置及本地验证已覆盖，远程 CI 和实际部署的全链路尚未验收。VAL-002 的 `gh api repos/weeleng/car_weight/branches/master-jdk17 --jq .protected` 返回 Forbidden（退出 1）。分支保护和 Ruleset 由有权限人员核验，仓库设置保持原样。Spring Boot 3.5.16、MySQL 8.4、模块化单体及独立 Gateway 边界保持。完整测试套件、远端 Jenkins、生产部署、真实设备和消息链路未执行。BLOCK-001 保持开放，生产启用须经独立专项。
 
 如需临时回滚工具配置，在另行授权的独立回滚分支按逆序执行 `git revert 457cb2ba7c48b87cea6c301ec79a21859970cd92 bdac8d58fb781685da6deaafc00864128e0efe77` 后复验，再提交人工审查。回滚将恢复 POM 的 source/target 17、Actions 的构建 JDK 选择及 runner Maven、旧镜像与 Jenkins 工具名称和部署检查。若只需恢复运行制品，可使用上一个已验镜像或 JAR，并核对 JVM 与启动参数。major 61 和 Java 17 API 边界提供项目类编译兼容证据，实际依赖及旧运行环境需单独验收。数据库和业务模块没有迁移变更。本任务的正式目标运行环境继续为 Java 21，旧环境仅可作为授权应急回滚。
+
+任务分支已推送。尝试创建 Draft PR 时 GitHub GraphQL 返回 Forbidden（退出 1），审查入口为 [GitHub 比较页面](https://github.com/weeleng/car_weight/compare/master-jdk17...engineering/eng-002a?expand=1)。
