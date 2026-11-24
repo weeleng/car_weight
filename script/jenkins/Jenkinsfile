@@ -3,7 +3,7 @@
 //
 // 使用说明见《Jenkins 部署》文档：https://doc.iocoder.cn/deployment-jenkins/
 // 1. Jenkins 新建「Pipeline（流水线）」类型的 Job，选择「Pipeline script from SCM」，Script Path 填写 script/jenkins/Jenkinsfile
-// 2. Jenkins 中配置 Tools（jdk17、maven3），以及两个凭据（yudao-deploy-ssh、yudao-deploy-known-hosts）
+// 2. Jenkins 中配置 Tools（jdk21、maven-3.9.12），以及两个凭据（yudao-deploy-ssh、yudao-deploy-known-hosts）
 // 3. 服务器上提前创建 <DEPLOY_BASE_DIR>/yudao-server 目录，并放入运行时配置 app.env（数据库、Redis 的地址与密码）
 
 // 在目标服务器上执行的脚本：Jenkins 通过 ssh 传入，用法为 bash -s -- <check|deploy> <部署根目录> <服务名> <默认端口>
@@ -42,6 +42,10 @@ load_env() {
         java_cmd="$JAVA_HOME/bin/java"
     fi
     command -v "$java_cmd" > /dev/null || fail "找不到 Java：$java_cmd"
+    local java_settings java_spec
+    java_settings=$("$java_cmd" -XshowSettings:properties -version 2>&1) || fail "无法查询 Java 版本"
+    java_spec=$(awk -F ' = ' '/^[[:space:]]*java.specification.version = / { print $2 }' <<< "$java_settings")
+    [ "$java_spec" = 21 ] || fail "部署需要 Java 21，当前为 ${java_spec:-未知}"
 }
 
 # 部署前检查：目录、app.env、Java、curl、pgrep、ss，以及端口是否被其它进程占用
@@ -233,8 +237,8 @@ pipeline {
 
     // 构建使用的 JDK、Maven，需要在 Jenkins 的 Tools 中配置同名工具。与 Jenkins 自身运行的 Java 版本无关
     tools {
-        jdk 'jdk17'
-        maven 'maven3'
+        jdk 'jdk21'
+        maven 'maven-3.9.12'
     }
 
     environment {
@@ -284,8 +288,8 @@ pipeline {
 
         stage('编译') {
             steps {
-                sh 'java -version && mvn -v'
-                sh 'mvn -B -ntp clean package -pl "$APP_MODULE" -am -Dmaven.test.skip=true'
+                sh 'bash script/shell/check-build-toolchain.sh'
+                sh 'mvn -B -ntp -C clean package -pl "$APP_MODULE" -am -Dmaven.test.skip=true'
                 sh 'test -f "$APP_JAR"'
             }
         }
