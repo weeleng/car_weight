@@ -2,7 +2,7 @@
 
 [决策来源与证据矩阵](decision-evidence-matrix.md)记录逐项清点结果、规范证据和待核验问题。[ADR 正文模板](ADR-TEMPLATE.md)用于后续按已批准原文导入。
 
-历史基线的 40 个条目仅含编号及占位状态。ENG-001B-02B-01、ENG-001B-02B-02、ENG-001B-02C-01、ENG-001B-02C-02、ENG-001B-02C-03 和 ENG-001B-02C-04 各提供五项候选标题和 Proposed 草案。其余 10 项仍待导入。原始编号映射、历史批准正文及审批证据待核验。
+历史基线的 40 个条目仅含编号及占位状态。ENG-001B-02B-01、ENG-001B-02B-02、ENG-001B-02C-01、ENG-001B-02C-02、ENG-001B-02C-03、ENG-001B-02C-04 和 ENG-001B-02C-05 各提供五项候选标题和 Proposed 草案。其余 5 项仍待导入。原始编号映射、历史批准正文及审批证据待核验。
 
 | 编号 | 决策主题 | 当前可用来源 | 正文与审批状态 |
 | --- | --- | --- | --- |
@@ -34,13 +34,13 @@
 | <a name="adr-026"></a>ADR-026 | 厨余垃圾专题地图（候选） | [ENG-001B-02C-03 草案](ADR-026-kitchen-waste-thematic-map.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-026)，历史批准正文待取得 |
 | <a name="adr-027"></a>ADR-027 | 移动端与车载终端（候选） | [ENG-001B-02C-04 草案](ADR-027-mobile-and-vehicle-terminals.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-027)，历史批准正文待取得 |
 | <a name="adr-028"></a>ADR-028 | 第三方系统集成（候选） | [ENG-001B-02C-04 草案](ADR-028-third-party-integration.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-028)，历史批准正文待取得 |
-| <a name="adr-029"></a>ADR-029 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-029) |
+| <a name="adr-029"></a>ADR-029 | 网络安全等级保护三级建设与安全合规（候选） | [ENG-001B-02C-05 草案](ADR-029-mlps-and-security-compliance.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-029)，历史批准正文待取得 |
 | <a name="adr-030"></a>ADR-030 | 个人信息与数据保护（候选） | [ENG-001B-02C-04 草案](ADR-030-personal-information-and-data-protection.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-030)，历史批准正文待取得 |
 | <a name="adr-031"></a>ADR-031 | 身份认证与访问安全（候选） | [ENG-001B-02C-04 草案](ADR-031-authentication-and-access-security.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-031)，历史批准正文待取得 |
-| <a name="adr-032"></a>ADR-032 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-032) |
-| <a name="adr-033"></a>ADR-033 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-033) |
-| <a name="adr-034"></a>ADR-034 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-034) |
-| <a name="adr-035"></a>ADR-035 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-035) |
+| <a name="adr-032"></a>ADR-032 | 安全审计与操作追溯（候选） | [ENG-001B-02C-05 草案](ADR-032-security-audit-and-traceability.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-032)，历史批准正文待取得 |
+| <a name="adr-033"></a>ADR-033 | 密码体系与 IoT 设备安全（候选） | [ENG-001B-02C-05 草案](ADR-033-cryptography-and-iot-security.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-033)，历史批准正文待取得 |
+| <a name="adr-034"></a>ADR-034 | 国产化及信创兼容性（候选） | [ENG-001B-02C-05 草案](ADR-034-domestic-platform-compatibility.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-034)，历史批准正文待取得 |
+| <a name="adr-035"></a>ADR-035 | 系统容量与性能指标（候选） | [ENG-001B-02C-05 草案](ADR-035-capacity-and-performance.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-035)，历史批准正文待取得 |
 | <a name="adr-036"></a>ADR-036 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-036) |
 | <a name="adr-037"></a>ADR-037 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-037) |
 | <a name="adr-038"></a>ADR-038 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-038) |
