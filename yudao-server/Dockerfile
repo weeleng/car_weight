@@ -20,4 +20,4 @@ ENV ARGS=""
 EXPOSE 48080
 
 ## 启动后端项目
-CMD java ${JAVA_OPTS} -jar app.jar $ARGS
+CMD exec java ${JAVA_OPTS} -jar app.jar $ARGS
