@@ -2,7 +2,7 @@
 
 [决策来源与证据矩阵](decision-evidence-matrix.md)记录逐项清点结果、规范证据和待核验问题。[ADR 正文模板](ADR-TEMPLATE.md)用于后续按已批准原文导入。
 
-历史基线的 40 个条目仅含编号及占位状态。ENG-001B-02B-01 为其中五项提供候选标题和 Proposed 草案。其余 35 项仍待导入。原始编号映射、历史批准正文及审批证据待核验。
+历史基线的 40 个条目仅含编号及占位状态。ENG-001B-02B-01 和 ENG-001B-02B-02 各提供五项候选标题和 Proposed 草案。其余 30 项仍待导入。原始编号映射、历史批准正文及审批证据待核验。
 
 | 编号 | 决策主题 | 当前可用来源 | 正文与审批状态 |
 | --- | --- | --- | --- |
@@ -18,10 +18,10 @@
 | <a name="adr-010"></a>ADR-010 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-010) |
 | <a name="adr-011"></a>ADR-011 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-011) |
 | <a name="adr-012"></a>ADR-012 | IoT 接入架构（候选） | [ENG-001B-02B-01 草案](ADR-012-iot-ingestion.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-012)，历史批准正文待取得 |
-| <a name="adr-013"></a>ADR-013 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-013) |
-| <a name="adr-014"></a>ADR-014 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-014) |
-| <a name="adr-015"></a>ADR-015 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-015) |
-| <a name="adr-016"></a>ADR-016 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-016) |
+| <a name="adr-013"></a>ADR-013 | VWCP 设备通信协议（候选） | [ENG-001B-02B-02 草案](ADR-013-vwcp-protocol.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-013)，历史批准正文待取得 |
+| <a name="adr-014"></a>ADR-014 | GNSS 定位与轨迹管理（候选） | [ENG-001B-02B-02 草案](ADR-014-gnss-and-tracking.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-014)，历史批准正文待取得 |
+| <a name="adr-015"></a>ADR-015 | 称重业务模型（候选） | [ENG-001B-02B-02 草案](ADR-015-weighing-model.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-015)，历史批准正文待取得 |
+| <a name="adr-016"></a>ADR-016 | RFID 识别与绑定（候选） | [ENG-001B-02B-02 草案](ADR-016-rfid-identification.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-016)，历史批准正文待取得 |
 | <a name="adr-017"></a>ADR-017 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-017) |
 | <a name="adr-018"></a>ADR-018 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-018) |
 | <a name="adr-019"></a>ADR-019 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-019) |
@@ -29,7 +29,7 @@
 | <a name="adr-021"></a>ADR-021 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-021) |
 | <a name="adr-022"></a>ADR-022 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-022) |
 | <a name="adr-023"></a>ADR-023 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-023) |
-| <a name="adr-024"></a>ADR-024 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-024) |
+| <a name="adr-024"></a>ADR-024 | 合同与计费（候选） | [ENG-001B-02B-02 草案](ADR-024-contract-and-billing.md) | [已有Proposed草案，未批准](decision-evidence-matrix.md#adr-024)，历史批准正文待取得 |
 | <a name="adr-025"></a>ADR-025 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-025) |
 | <a name="adr-026"></a>ADR-026 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-026) |
 | <a name="adr-027"></a>ADR-027 | 待核验 | ENG-001A 索引占位 | [待导入已批准正文，批准证据待核验](decision-evidence-matrix.md#adr-027) |
