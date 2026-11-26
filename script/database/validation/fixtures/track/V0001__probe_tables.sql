@@ -1,0 +1,1 @@
+CREATE TABLE probe_point (id BIGINT PRIMARY KEY) ENGINE=InnoDB;

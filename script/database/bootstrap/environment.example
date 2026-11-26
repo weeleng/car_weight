@@ -1,0 +1,6 @@
+# Illustrative names only. Export generated unique secrets via the isolated lab.
+ENG002C_ENV=isolated
+# Each of INGEST, BUSINESS, TRACK needs:
+# ENG002C_<DOMAIN>_URL=jdbc:mysql://127.0.0.1:<lab-port>/sanitation_<lowercase-domain>
+# ENG002C_<DOMAIN>_UUID=<verified isolated server UUID>
+# ENG002C_<DOMAIN>_<MIGRATOR|RUNTIME|AUDIT|BACKUP|RESTORE>_PASSWORD=<random hex>
