@@ -21,13 +21,16 @@ final class Store {
     T1 receive(Protocol event, Fault fault, Runnable beforeCommit) {
         byte[] raw = event.payload().getBytes(StandardCharsets.UTF_8);
         byte[] message = event.bytes();
+        boolean matchesIntent = event.matchesSingleIntent(event.eventId(), Protocol.expectedMessageId(event.eventId()));
         try {
             ingest.commit(status -> {
                 ingest.sql.update("INSERT INTO raw_event(event_id,digest,payload) VALUES(?,?,?)",
                         event.eventId(), digest(raw), raw);
+                if (!matchesIntent) throw new Protocol.Rejected("INTENT_CONTRACT");
                 if (fault == Fault.APPLICATION) throw new Injected();
                 ingest.sql.update("INSERT INTO outbox(message_id,event_id,digest,payload,topology_version) VALUES(?,?,?,?,?)",
-                        event.messageId(), event.eventId(), digest(message), message, fault == Fault.OUTBOX ? null : 1);
+                        event.messageId(), event.eventId(), digest(message), message,
+                        fault == Fault.OUTBOX ? null : Protocol.TOPOLOGY_VERSION);
                 beforeCommit.run();
                 if (fault == Fault.ROLLBACK_ONLY) status.setRollbackOnly();
                 if (fault == Fault.COMMIT_FAILURE) closeBoundConnection(ingest);
@@ -35,24 +38,34 @@ final class Store {
             });
             return fault == Fault.UNKNOWN_AFTER_COMMIT ? T1.UNKNOWN : T1.COMMITTED;
         } catch (DuplicateKeyException duplicate) {
-            return recover(event.eventId(), raw);
+            T1 outcome = recover(event.eventId(), raw);
+            return outcome == T1.DUPLICATE && !matchesIntent ? T1.MISSING_INTENT : outcome;
         }
     }
 
     T1 recover(String eventId, byte[] raw) {
+        String expectedMessage = Protocol.expectedMessageId(eventId);
         return ingest.commit(status -> {
             var result = ingest.sql.query("""
-                    SELECT r.digest,r.payload,o.payload AS outbound,o.digest AS outbound_digest
-                    FROM raw_event r LEFT JOIN outbox o USING(event_id) WHERE r.event_id=?
+                    SELECT r.event_id AS raw_id,r.digest,r.payload,o.event_id AS intent_event,
+                        o.message_id,o.topology_version,o.payload AS outbound,o.digest AS outbound_digest
+                    FROM raw_event r LEFT JOIN outbox o ON (o.event_id=r.event_id OR o.message_id=?)
+                    WHERE r.event_id=?
                     """, (row, n) -> {
-                if (!digest(raw).equals(row.getString("digest")) || !Arrays.equals(raw, row.getBytes("payload"))) {
+                if (!eventId.equals(row.getString("raw_id")) || !digest(raw).equals(row.getString("digest"))
+                        || !Arrays.equals(raw, row.getBytes("payload"))) {
                     return T1.CONFLICT;
                 }
                 byte[] outbound = row.getBytes("outbound");
-                return outbound != null && digest(outbound).equals(row.getString("outbound_digest"))
-                        ? T1.DUPLICATE : T1.MISSING_INTENT;
-            }, eventId);
+                boolean valid = expectedMessage != null && expectedMessage.equals(row.getString("message_id"))
+                        && eventId.equals(row.getString("intent_event"))
+                        && row.getInt("topology_version") == Protocol.TOPOLOGY_VERSION
+                        && outbound != null && digest(outbound).equals(row.getString("outbound_digest"))
+                        && matchesPersistedIntent(outbound, eventId, expectedMessage, raw);
+                return valid ? T1.DUPLICATE : T1.MISSING_INTENT;
+            }, expectedMessage, eventId);
             T1 outcome = result.isEmpty() ? T1.UNKNOWN : result.get(0);
+            if (result.size() > 1 && outcome != T1.CONFLICT) outcome = T1.MISSING_INTENT;
             if (outcome == T1.CONFLICT) {
                 ingest.sql.update("""
                         INSERT INTO raw_conflict(event_id,received_digest,received_payload) VALUES(?,?,?)
@@ -61,6 +74,16 @@ final class Store {
             }
             return outcome;
         });
+    }
+
+    private static boolean matchesPersistedIntent(byte[] outbound, String eventId, String messageId, byte[] raw) {
+        try {
+            Protocol envelope = Protocol.decode(outbound);
+            return envelope.matchesSingleIntent(eventId, messageId) && envelope.payload() != null
+                    && Arrays.equals(raw, envelope.payload().getBytes(StandardCharsets.UTF_8));
+        } catch (Protocol.Rejected invalid) {
+            return false;
+        }
     }
 
     static boolean l2Eligible(T1 result) { return result == T1.COMMITTED || result == T1.DUPLICATE; }

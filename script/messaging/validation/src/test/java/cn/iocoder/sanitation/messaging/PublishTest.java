@@ -20,6 +20,208 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import static org.junit.jupiter.api.Assertions.*;
 
 class PublishTest extends LabFixture {
+    @Test void managementConnectionFailureIsTopologyUnknownBeforeAnySend() throws Exception {
+        var item = event("management-down");
+        accept(item);
+        int unavailable = closedPort();
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(() -> unavailable, managementPassword())) {
+            prepare(channel);
+            var failure = assertThrows(Broker.TopologyUnavailable.class, () -> broker.topology(1));
+            assertEquals("MANAGEMENT_IO", failure.getMessage());
+            assertInstanceOf(java.io.IOException.class, failure.getCause());
+            assertFalse(relay.publish(relay.claim(), broker, () -> fail("no confirmation")));
+            assertFailure(item, "TOPOLOGY_UNKNOWN");
+            assertNull(channel.basicGet(Broker.CLASSIC, false));
+            snapshot();
+        }
+    }
+
+    @Test void actualBrokerManagement401IsAClassifiedNonIoFailure() throws Exception {
+        var item = event("management-http");
+        accept(item);
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(() -> Database.port("MGMT_PORT", 15672), attempt())) {
+            prepare(channel);
+            var failure = assertThrows(Broker.TopologyUnavailable.class, () -> broker.topology(1));
+            assertEquals("MANAGEMENT_HTTP_401", failure.getMessage());
+            assertNull(failure.getCause());
+            assertFalse(relay.publish(relay.claim(), broker, () -> fail("no confirmation")));
+            assertFailure(item, "TOPOLOGY_UNKNOWN");
+            assertNull(channel.basicGet(Broker.CLASSIC, false));
+            snapshot();
+        }
+    }
+
+    @Test void invalidTopologyShapeIsUnknownButWrongBrokerIdentityPropagates() throws Exception {
+        var item = event("shape");
+        accept(item);
+        var reply = new java.util.concurrent.atomic.AtomicReference<>("{}");
+        var server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/overview", exchange -> {
+            byte[] bytes = reply.get().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var body = exchange.getResponseBody()) { body.write(bytes); }
+        });
+        server.start();
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(() -> server.getAddress().getPort(), attempt())) {
+            prepare(channel);
+            assertEquals("MANAGEMENT_RESPONSE_SHAPE",
+                    assertThrows(Broker.TopologyUnavailable.class, () -> broker.topology(1)).getMessage());
+            assertFalse(relay.publish(relay.claim(), broker, () -> fail("no confirmation")));
+            assertFailure(item, "TOPOLOGY_UNKNOWN");
+            ingest.sql.update("UPDATE outbox SET next_retry_at=UTC_TIMESTAMP(3)+INTERVAL 1 HOUR");
+            var different = event("identity");
+            accept(different);
+            reply.set("{\"cluster_name\":\"wrong-fixture\"}");
+            assertEquals("unexpected management broker", assertThrows(IllegalStateException.class,
+                    () -> relay.publish(relay.claim(), broker, () -> fail("no confirmation"))).getMessage());
+            assertEquals("PUBLISHING", status(different));
+            assertNull(lastError(different));
+            assertNull(channel.basicGet(Broker.CLASSIC, false));
+            snapshot();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test void unavailablePublishConnectionIsTransportUnknownAfterValidTopology() throws Exception {
+        var item = event("transport-unknown");
+        accept(item);
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(() -> Database.port("MGMT_PORT", 15672), managementPassword(), closedPort())) {
+            prepare(channel);
+            assertTrue(await(() -> broker.topology(1) ? Boolean.TRUE : null));
+            assertFalse(relay.publish(relay.claim(), broker, () -> fail("no confirmation")));
+            assertFailure(item, "TRANSPORT_UNKNOWN");
+            assertNull(channel.basicGet(Broker.CLASSIC, false));
+            snapshot();
+        }
+    }
+
+    @Test void confirmedMessageWithPostCheckFailureDoesNotBecomePublished() throws Exception {
+        var item = event("post-check");
+        accept(item);
+        var port = new java.util.concurrent.atomic.AtomicInteger(Database.port("MGMT_PORT", 15672));
+        int unavailable = closedPort();
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(port::get, managementPassword())) {
+            prepare(channel);
+            assertFalse(relay.publish(relay.claim(), broker, () -> port.set(unavailable)));
+            assertFailure(item, "TOPOLOGY_UNKNOWN");
+            var delivered = delivery(channel, Broker.CLASSIC);
+            assertEquals(item.messageId(), delivered.getProps().getMessageId());
+            channel.basicAck(delivered.getEnvelope().getDeliveryTag(), false);
+            snapshot();
+        }
+    }
+
+    @Test void unavailableOutcomeWritePreservesLeaseAndIdentityUntilConfirmedReclaim() throws Exception {
+        var item = event("post-check-db");
+        accept(item);
+        var port = new java.util.concurrent.atomic.AtomicInteger(Database.port("MGMT_PORT", 15672));
+        int unavailable = closedPort();
+        String database = Database.required("MARKER") + "-db";
+        try (var raw = Broker.connect(); var channel = raw.createChannel();
+             var broker = new Broker(port::get, managementPassword())) {
+            prepare(channel);
+            var first = relay.claim();
+            var stopping = new AtomicBoolean();
+            try {
+                var unknown = assertThrows(Relay.UpdateUnknown.class, () -> relay.publish(first, broker, () -> {
+                    try { docker("stop", database); stopping.set(true); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                    port.set(unavailable);
+                }));
+                assertEquals("DB_UPDATE_UNKNOWN", unknown.getMessage());
+                assertEquals("TOPOLOGY_UNKNOWN", unknown.requestedFailure);
+                assertFalse(unknown.brokerAndTopologyAccepted);
+                assertEquals(first.id(), unknown.messageId);
+                assertEquals(first.attempt(), unknown.attemptId);
+                assertInstanceOf(org.springframework.transaction.CannotCreateTransactionException.class, unknown.getCause());
+            } finally {
+                if (stopping.get()) docker("start", database);
+                port.set(Database.port("MGMT_PORT", 15672));
+            }
+            assertEquals("PUBLISHING", await(() -> status(item)));
+            assertNull(lastError(item));
+            assertArrayEquals(first.bytes(), ingest.sql.queryForObject("SELECT payload FROM outbox WHERE message_id=?",
+                    byte[].class, first.id()));
+            expire(first);
+            var replacement = relay.claim();
+            assertEquals(first.id(), replacement.id());
+            assertArrayEquals(first.bytes(), replacement.bytes());
+            assertNotEquals(first.attempt(), replacement.attempt());
+            assertFalse(relay.finish(first, true, null));
+            assertEquals("PUBLISHING", status(item));
+            assertTrue(relay.publish(replacement, broker, () -> {}));
+            var published = outcome(item);
+            assertFalse(relay.finish(replacement, true, null));
+            assertFalse(relay.finish(first, false, "STALE"));
+            assertEquals(published, outcome(item));
+            for (int i = 0; i < 2; i++) {
+                var delivered = delivery(channel, Broker.CLASSIC);
+                assertEquals(first.id(), delivered.getProps().getMessageId());
+                assertArrayEquals(first.bytes(), delivered.getBody());
+                channel.basicAck(delivered.getEnvelope().getDeliveryTag(), false);
+            }
+            snapshot();
+        }
+    }
+
+    @Test void expiredThirdAttemptGoesDeadWithoutAFourthClaimOrAnyPublication() throws Exception {
+        var item = event("lease-budget");
+        accept(item);
+        try (var raw = Broker.connect(); var channel = raw.createChannel()) {
+            prepare(channel);
+            Relay.Claim third = null;
+            for (int i = 1; i <= 3; i++) {
+                third = relay.claim();
+                assertEquals(i, third.attempts());
+                expire(third);
+            }
+            assertNull(relay.claim());
+            assertEquals("DEAD", status(item));
+            assertEquals("LEASE_EXHAUSTED", lastError(item));
+            var dead = outcome(item);
+            assertEquals(3, ((Number) dead.get("attempts")).intValue());
+            assertFalse(relay.finish(third, true, null));
+            assertFalse(relay.finish(third, false, "STALE"));
+            assertEquals(dead, outcome(item));
+            assertEquals(1, ingest.count("raw_event"));
+            assertNull(channel.basicGet(Broker.CLASSIC, false));
+            snapshot();
+        }
+    }
+
+    private void assertFailure(Protocol item, String expectedReason) {
+        assertEquals("RETRY_WAIT", status(item));
+        assertEquals(expectedReason, lastError(item));
+    }
+
+    private String lastError(Protocol item) {
+        return ingest.sql.queryForObject("SELECT last_error FROM outbox WHERE message_id=?", String.class, item.messageId());
+    }
+
+    private Map<String, Object> outcome(Protocol item) {
+        return ingest.sql.queryForMap("SELECT status,version,attempt_id,attempts,last_error FROM outbox WHERE message_id=?",
+                item.messageId());
+    }
+
+    private void expire(Relay.Claim claim) {
+        ingest.sql.update("UPDATE outbox SET lease_until=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE message_id=?", claim.id());
+    }
+
+    private static int closedPort() throws Exception {
+        try (var socket = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))) {
+            return socket.getLocalPort();
+        }
+    }
+
+    private static String managementPassword() { return System.getenv("RABBITMQ_DEFAULT_PASS"); }
+
     @Test void concurrentRelayClaimsAndExpiredLeaseFencingUnderBothIsolations() throws Exception {
         var plans = new ArrayList<Map<String, Object>>();
         for (int isolation : new int[] {TransactionDefinition.ISOLATION_READ_COMMITTED, TransactionDefinition.ISOLATION_DEFAULT}) {
@@ -160,12 +362,18 @@ class PublishTest extends LabFixture {
             var first = relay.claim();
             var stopped = new AtomicBoolean();
             try {
-                assertThrows(org.springframework.transaction.CannotCreateTransactionException.class,
+                var update = assertThrows(Relay.UpdateUnknown.class,
                         () -> relay.publish(first, broker, () -> {
                             assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
                             try { docker("stop", database); stopped.set(true); }
                             catch (Exception error) { throw new IllegalStateException(error); }
                         }));
+                assertInstanceOf(org.springframework.transaction.CannotCreateTransactionException.class, update.getCause());
+                assertEquals("DB_UPDATE_UNKNOWN", update.getMessage());
+                assertEquals(first.id(), update.messageId);
+                assertEquals(first.attempt(), update.attemptId);
+                assertTrue(update.brokerAndTopologyAccepted);
+                assertNull(update.requestedFailure);
             } finally {
                 if (stopped.get()) docker("start", database);
             }
@@ -198,6 +406,7 @@ class PublishTest extends LabFixture {
         } finally {
             docker("start", node);
         }
+        awaitRabbitListener();
         try (var connection = await(Broker::connect); var channel = connection.createChannel(); var broker = new Broker()) {
             assertTrue(await(() -> broker.topology(1) ? Boolean.TRUE : null));
             for (String queue : new String[] {Broker.CLASSIC, Broker.QUORUM}) {

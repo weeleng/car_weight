@@ -2,10 +2,13 @@ package cn.iocoder.sanitation.messaging;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 final class Relay {
+    private static final int MAX_ATTEMPTS = 3;
     private final Database database;
     private final String owner;
     private final int isolation;
@@ -26,7 +29,7 @@ final class Relay {
                     WHERE status='PUBLISHING' AND lease_until<=UTC_TIMESTAMP(3)
                     ORDER BY lease_until,message_id LIMIT 1 FOR UPDATE SKIP LOCKED
                     """, Relay::claimRow);
-            if (!expired.isEmpty() && expired.get(0).attempts() > 3) {
+            if (!expired.isEmpty() && expired.get(0).attempts() > MAX_ATTEMPTS) {
                 database.sql.update("""
                         UPDATE outbox SET status='DEAD',version=version+1,last_error='LEASE_EXHAUSTED',lease_until=NULL
                         WHERE message_id=?
@@ -59,30 +62,44 @@ final class Relay {
         }
         Broker.Confirmation confirmation;
         try {
-            if (!broker.topology(claim.topology())) {
-                finish(claim, false, "TOPOLOGY");
-                return false;
-            }
+            if (!topologyAllows(claim, broker)) return false;
             confirmation = broker.publish(Broker.EXCHANGE, Broker.ROUTE, claim.id(), claim.attempt(), claim.bytes());
-        } catch (java.io.IOException | java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException e) {
+        } catch (Broker.PublicationUnavailable error) {
             finish(claim, false, "TRANSPORT_UNKNOWN");
             return false;
         }
-        if (confirmation.accepted()) afterConfirm.run();
-        boolean accepted;
-        try {
-            accepted = confirmation.accepted() && broker.topology(claim.topology());
-        } catch (java.io.IOException e) {
-            finish(claim, false, "POST_CONFIRM_TOPOLOGY_UNKNOWN");
+        if (!confirmation.accepted()) {
+            finish(claim, false, confirmation.returned() ? "RETURNED" : "UNCONFIRMED");
             return false;
         }
-        boolean recorded = finish(claim, accepted, confirmation.returned() ? "RETURNED" : "UNCONFIRMED");
-        return accepted && recorded;
+        afterConfirm.run();
+        return topologyAllows(claim, broker) && finish(claim, true, null);
+    }
+
+    private boolean topologyAllows(Claim claim, Broker broker) throws InterruptedException {
+        boolean matches;
+        try {
+            matches = broker.topology(claim.topology());
+        } catch (Broker.TopologyUnavailable error) {
+            finish(claim, false, "TOPOLOGY_UNKNOWN");
+            return false;
+        }
+        if (!matches) finish(claim, false, "TOPOLOGY");
+        return matches;
     }
 
     boolean finish(Claim claim, boolean accepted, String reason) {
+        try {
+            return recordOutcome(claim, accepted, reason);
+        } catch (CannotCreateTransactionException | DataAccessResourceFailureException error) {
+            // Recording a second outcome here cannot prove whether the first update committed.
+            throw new UpdateUnknown(claim, accepted, reason, error);
+        }
+    }
+
+    private boolean recordOutcome(Claim claim, boolean accepted, String reason) {
         return database.commit(status -> {
-            String next = accepted ? "PUBLISHED" : claim.attempts() >= 3 ? "DEAD" : "RETRY_WAIT";
+            String next = accepted ? "PUBLISHED" : claim.attempts() >= MAX_ATTEMPTS ? "DEAD" : "RETRY_WAIT";
             int delay = Math.min(8, 1 << Math.min(3, claim.attempts()));
             int changed = database.sql.update("""
                     UPDATE outbox SET status=?,version=version+1,last_error=?,lease_until=NULL,
@@ -95,6 +112,21 @@ final class Relay {
             }
             return changed == 1;
         });
+    }
+
+    static final class UpdateUnknown extends IllegalStateException {
+        final String messageId;
+        final String attemptId;
+        final boolean brokerAndTopologyAccepted;
+        final String requestedFailure;
+
+        UpdateUnknown(Claim claim, boolean accepted, String reason, RuntimeException cause) {
+            super("DB_UPDATE_UNKNOWN", cause);
+            messageId = claim.id();
+            attemptId = claim.attempt();
+            brokerAndTopologyAccepted = accepted;
+            requestedFailure = reason;
+        }
     }
 
     String replay(String message, String consumer, String requester, String approver, String reason) {

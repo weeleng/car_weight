@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -13,8 +14,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
+import java.util.function.IntSupplier;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import org.springframework.amqp.AmqpException;
+import java.util.concurrent.TimeoutException;
+import org.springframework.amqp.AmqpConnectException;
+import org.springframework.amqp.AmqpIOException;
+import org.springframework.amqp.AmqpTimeoutException;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
@@ -27,12 +33,24 @@ final class Broker implements AutoCloseable {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final CachingConnectionFactory factory;
     private final RabbitTemplate publisher;
+    private final IntSupplier managementPort;
+    private final String managementPassword;
 
     Broker() throws Exception {
+        this(() -> Database.port("MGMT_PORT", 15672), System.getenv("RABBITMQ_DEFAULT_PASS"));
+    }
+
+    Broker(IntSupplier managementPort, String managementPassword) throws Exception {
+        this(managementPort, managementPassword, Database.port("MQ_PORT", 5672));
+    }
+
+    Broker(IntSupplier managementPort, String managementPassword, int publishPort) throws Exception {
         try (var ignored = connect()) {
             // Verify the broker before the separate publishing connection is opened.
         }
-        factory = new CachingConnectionFactory(rawFactory(Database.port("MQ_PORT", 5672)));
+        this.managementPort = managementPort;
+        this.managementPassword = java.util.Objects.requireNonNull(managementPassword);
+        factory = new CachingConnectionFactory(rawFactory(publishPort));
         factory.setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED);
         factory.setPublisherReturns(true);
         publisher = new RabbitTemplate(factory);
@@ -83,42 +101,86 @@ final class Broker implements AutoCloseable {
                     .setDeliveryMode(MessageDeliveryMode.PERSISTENT).setContentType("application/json").build(), cd);
             var confirmation = cd.getFuture().get(5, TimeUnit.SECONDS);
             return new Confirmation(confirmation.isAck(), cd.getReturned() != null, confirmation.getReason());
-        } catch (AmqpException ex) {
-            return new Confirmation(false, false, ex.getClass().getSimpleName());
+        } catch (AmqpConnectException | AmqpIOException | AmqpTimeoutException | TimeoutException error) {
+            throw new PublicationUnavailable(error);
+        } catch (ExecutionException error) {
+            if (error.getCause() instanceof IOException || error.getCause() instanceof TimeoutException
+                    || error.getCause() instanceof AmqpConnectException || error.getCause() instanceof AmqpIOException
+                    || error.getCause() instanceof AmqpTimeoutException) {
+                throw new PublicationUnavailable(error.getCause());
+            }
+            throw error;
         }
     }
 
-    private static JsonNode management(String path) throws Exception {
-        int port = Database.port("MGMT_PORT", 15672);
-        String credentials = "probe:" + System.getenv("RABBITMQ_DEFAULT_PASS");
+    private JsonNode management(String path, boolean missingIsKnown) throws InterruptedException {
+        int port = managementPort.getAsInt();
+        String credentials = "probe:" + managementPassword;
         var token = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/" + path))
                 .timeout(Duration.ofSeconds(4)).header("Authorization", "Basic " + token).build();
-        var response = MANAGEMENT_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() == 404) return JSON.missingNode();
-        if (response.statusCode() != 200) throw new IllegalStateException("management API refused topology check");
-        return JSON.readTree(response.body());
+        HttpResponse<String> response;
+        try {
+            response = MANAGEMENT_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException error) {
+            throw new TopologyUnavailable("MANAGEMENT_IO", error);
+        }
+        if (response.statusCode() == 404 && missingIsKnown) return JSON.missingNode();
+        if (response.statusCode() != 200) throw new TopologyUnavailable("MANAGEMENT_HTTP_" + response.statusCode(), null);
+        try {
+            JsonNode body = JSON.readTree(response.body());
+            if (body == null || body.isNull() || body.isMissingNode()) {
+                throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
+            }
+            return body;
+        } catch (IOException error) {
+            throw new TopologyUnavailable("MANAGEMENT_INVALID_JSON", error);
+        }
     }
 
-    boolean topology(int version) throws Exception {
-        if (version != 1) return false;
-        var overview = management("overview");
+    boolean topology(int version) throws InterruptedException {
+        if (version != Protocol.TOPOLOGY_VERSION) return false;
+        var overview = management("overview", false);
+        if (!overview.path("cluster_name").isTextual()) {
+            throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
+        }
         if (!Database.required("MARKER").equals(overview.path("cluster_name").asText())) {
             throw new IllegalStateException("unexpected management broker");
         }
-        var exchange = management("exchanges/probe/" + EXCHANGE);
+        var exchange = management("exchanges/probe/" + EXCHANGE, true);
+        if (exchange.isMissingNode()) return false;
+        if (!exchange.path("durable").isBoolean() || !exchange.path("type").isTextual()) {
+            throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
+        }
         return exchange.path("durable").asBoolean() && "direct".equals(exchange.path("type").asText())
                 && bound(CLASSIC, "classic") && bound(QUORUM, "quorum");
     }
 
-    private static boolean bound(String queue, String queueType) throws Exception {
-        var info = management("queues/probe/" + queue);
+    private boolean bound(String queue, String queueType) throws InterruptedException {
+        var info = management("queues/probe/" + queue, true);
+        if (info.isMissingNode()) return false;
+        if (!info.path("durable").isBoolean() || !info.path("type").isTextual()) {
+            throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
+        }
         if (!info.path("durable").asBoolean() || !queueType.equals(info.path("type").asText())) return false;
-        var bindings = management("bindings/probe/e/" + EXCHANGE + "/q/" + queue);
+        var bindings = management("bindings/probe/e/" + EXCHANGE + "/q/" + queue, true);
+        if (bindings.isMissingNode()) return false;
+        if (!bindings.isArray()) throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
         for (var binding : bindings) {
+            if (!binding.path("routing_key").isTextual()) {
+                throw new TopologyUnavailable("MANAGEMENT_RESPONSE_SHAPE", null);
+            }
             if (ROUTE.equals(binding.path("routing_key").asText())) return true;
         }
         return false;
+    }
+
+    static final class TopologyUnavailable extends RuntimeException {
+        TopologyUnavailable(String detail, IOException cause) { super(detail, cause); }
+    }
+
+    static final class PublicationUnavailable extends RuntimeException {
+        PublicationUnavailable(Throwable cause) { super("publication outcome unknown", cause); }
     }
 
     @Override public void close() { factory.destroy(); }

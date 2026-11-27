@@ -121,6 +121,30 @@ abstract class LabFixture {
         return command(base, arguments);
     }
 
+    static void awaitRabbitListener() throws Exception {
+        String host = Database.required("DOCKER_HOST");
+        String marker = Database.required("MARKER");
+        String name = Database.required("MQ_NAME");
+        if (!host.startsWith("unix://") || !name.equals(marker + "-mq")) {
+            throw new IllegalStateException("wrong fixture");
+        }
+        var base = List.of("docker", "--host", host);
+        String label = command(base, "inspect", "--format", "{{index .Config.Labels \"org.weeleng.eng002e\"}}", name);
+        if (!marker.equals(label.strip())) throw new IllegalStateException("not this lab's container");
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(60);
+        IllegalStateException last;
+        do {
+            try {
+                command(base, "exec", name, "rabbitmq-diagnostics", "-q", "check_port_connectivity");
+                return;
+            } catch (IllegalStateException unavailable) {
+                last = unavailable;
+                Thread.sleep(500);
+            }
+        } while (System.nanoTime() < deadline);
+        throw last;
+    }
+
     private static String command(List<String> base, String... arguments) throws Exception {
         var args = new java.util.ArrayList<>(base);
         args.addAll(List.of(arguments));
