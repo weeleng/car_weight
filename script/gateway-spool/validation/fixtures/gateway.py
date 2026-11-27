@@ -27,19 +27,21 @@ def volume(name, fixture=None):
     return directory
 
 
-def open_gateway(stack, case, path, mode="redis", enabled=True, readonly=False, extra=()):
+def open_gateway(stack, case, path, mode="redis", enabled=True, readonly=False, extra=(),
+                 jar=None, readonly_file=None):
     name = NETWORK + "-" + case
     flags = {"SPRING_RABBITMQ_USERNAME": os.environ["LAB_MQ_USER"],
              "SPRING_RABBITMQ_PASSWORD": os.environ["LAB_MQ_PASSWORD"]}
     mount = "/data"
     bus = (f"--yudao.iot.message-bus.type={mode}",) if mode != "missing" else (
         "--spring.config.location=file:/probe/no-type.yaml",)
+    file_mount = ["-v", f"{readonly_file}:/data/spool.db:ro"] if readonly_file else []
     args = [
         "run", "-d", "--name", name, "--label", LABEL, "--network", os.environ["LAB_GATEWAY_NETWORK"],
-        "-v", f"{path}:{mount}:{'ro' if readonly else 'rw'}",
+        "-v", f"{path}:{mount}:{'ro' if readonly else 'rw'}", *file_mount,
         "-v", f"{RUN}/classes:/probe/classes:ro",
         "-v", f"{RUN}/no-type.yaml:/probe/no-type.yaml:ro",
-        "-v", f"{os.environ['LAB_GATEWAY']}:/probe/gateway.jar:ro",
+        "-v", f"{jar or os.environ['LAB_GATEWAY']}:/probe/gateway.jar:ro",
         "-e", "SPRING_RABBITMQ_USERNAME", "-e", "SPRING_RABBITMQ_PASSWORD",
         "--entrypoint", "java", "eclipse-temurin:21-jre", "-XX:ActiveProcessorCount=2", "-Xmx256m",
         "-Dloader.path=/probe/classes", "-Dloader.main=labprobe.GatewayProbe", "-cp", "/probe/gateway.jar",
@@ -60,6 +62,8 @@ def observe(name):
     for _ in range(100):
         log = docker("logs", name)
         if "F01 READY" in log or docker("inspect", "-f", "{{.State.Running}}", name) == "false":
+            (OUT / f"{name.removeprefix(NETWORK + '-')}.log").write_text(
+                log.replace(os.environ["LAB_MQ_PASSWORD"], "[redacted]") + "\n")
             return log
         time.sleep(0.3)
     raise RuntimeError(f"Gateway timed out: {name}")

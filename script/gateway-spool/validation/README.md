@@ -23,3 +23,16 @@ A 的原版 Gateway 容器仅连接内部网络，依赖指向本轮合成 Redis
 | D | 候选关键事件先落盘、保留、容量、短事务、fencing 与失效状态，独立合成 T1 证据及登记。正文摘要可保留，关键载荷仅在核验证据登记后清理 |
 
 进程预期故障码由 JUnit 断言，Maven 报告分别统计实际测试、失败、错误和跳过。压力结果基于小样本及一次隔离运行。文件锁属于协作机制，不能约束未获同一锁的旧版进程。迁移器和 T1 证明仅供隔离验证。
+
+## 02B-1 实际 Gateway 复验
+
+使用按 02B-1 源码构建的 exec JAR，以及按 02A 交付基线构建的 exec JAR。运行器通过挂载观察器记录两个版本的装配。合成输入调用真实暂存服务和生产消息总线，真实设备回执不参与本实验。
+
+```bash
+python3 script/gateway-spool/validation/run-lab.py \
+  --gateway /absolute/path/to/repaired-gateway-exec.jar \
+  --legacy-gateway /absolute/path/to/02a-gateway-exec.jar \
+  --evidence-dir /absolute/path/to/new-run
+```
+
+`remediation/matrix.json` 记录 10 个端到端用例，含进程退出、实际 Redis 补传、RabbitMQ ACK/returned/NACK、确认丢失及确认后删盘前进程中止。操作历史文件仅使用本轮构造的合成 SQLite 文件。单独运行 02A A–D 原断言时，仍传入 02A 原版构件且省略 `--legacy-gateway`。

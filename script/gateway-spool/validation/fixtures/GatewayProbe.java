@@ -17,7 +17,8 @@ public class GatewayProbe {
             }
         });
     }
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] arguments) throws Exception {
+        var args = SpoolRabbitFixture.gatewayArgs(arguments);
         var app = new SpringApplication(Class.forName("cn.iocoder.yudao.module.iot.gateway.IotGatewayServerApplication"));
         app.addInitializers((ApplicationContextInitializer<ConfigurableApplicationContext>) ctx -> {
             var factory = ctx.getBeanFactory();
@@ -50,6 +51,7 @@ public class GatewayProbe {
             System.out.println("F01 READY drainWorkers=" + workers);
             var f=event.getApplicationContext().getBeanFactory();
             System.out.println("F01 MESSAGE DEPS "+java.util.Arrays.toString(f.getDependenciesForBean("iotGatewayDeviceMessageServiceImpl")));
+            SpoolRabbitFixture.publish(event.getApplicationContext(), args);
         });
         app.run(args);
     }

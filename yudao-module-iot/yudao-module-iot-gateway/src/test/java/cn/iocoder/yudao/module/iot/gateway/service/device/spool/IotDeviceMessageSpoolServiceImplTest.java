@@ -21,10 +21,16 @@ import org.mockito.Mock;
 import org.springframework.util.unit.DataSize;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.iot.gateway.enums.ErrorCodeConstants.DEVICE_MESSAGE_REJECTED;
@@ -104,10 +110,9 @@ public class IotDeviceMessageSpoolServiceImplTest extends BaseMockitoUnitTest {
         ReflectUtil.setFieldValue(localService, "gatewayProperties", gatewayProperties);
         ReflectUtil.setFieldValue(localService, "messageBus", mock(IotLocalMessageBus.class));
 
-        // 调用
-        localService.init();
+        assertThrows(IllegalStateException.class, localService::init);
 
-        // 断言：不启用离线暂存，保持直发
+        // 显式要求暂存时，Local 不可静默退回直发
         assertFalse(localService.isSpoolableMessage(buildMessage("m1"), IotProtocolTypeEnum.MQTT));
         assertNull(ReflectUtil.getFieldValue(localService, "jdbcTemplate"));
     }
@@ -330,11 +335,10 @@ public class IotDeviceMessageSpoolServiceImplTest extends BaseMockitoUnitTest {
     public void testSendSpoolableMessage_fileUnavailable() {
         // 准备参数：暂存文件打开失败
         spoolService.close();
-        doThrow(new IllegalStateException("redis down")).when(deviceMessageProducer).sendDeviceMessageConfirmed(any());
-
-        // 调用，并断言：直发失败后拒绝，不能静默成功
+        // 暂存不可用时，在尝试直发前拒绝。
         assertServiceException(() -> spoolService.sendSpoolableMessage(buildMessage("m1"), T1),
                 DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
+        verifyNoInteractions(deviceMessageProducer);
     }
 
     @Test
@@ -369,6 +373,118 @@ public class IotDeviceMessageSpoolServiceImplTest extends BaseMockitoUnitTest {
         assertThrows(RuntimeException.class, () -> spoolService.open(corrupted.getPath()));
         assertTrue(corrupted.exists());
         assertNull(ReflectUtil.getFieldValue(spoolService, "jdbcTemplate"));
+    }
+
+    @Test
+    public void testOpen_secondServiceCannotOwnSamePath() {
+        var other = new IotDeviceMessageSpoolServiceImpl();
+        assertTrue(assertThrows(IllegalStateException.class, () -> other.open(file)).getMessage().contains("当前 JVM"));
+        spoolService.close();
+        other.open(file);
+        other.close();
+    }
+
+    @Test
+    public void testOpen_rejectsUnknownVersionWithoutRewriting() throws Exception {
+        spoolService.close();
+        try (var db = DriverManager.getConnection("jdbc:sqlite:" + file); var sql = db.createStatement()) {
+            sql.execute("PRAGMA user_version=17");
+            sql.execute("INSERT INTO iot_device_message_spool(spool_time,size,message) VALUES (1,2,'{}')");
+        }
+        byte[] original = Files.readAllBytes(Path.of(file));
+        assertTrue(assertThrows(IllegalStateException.class, () -> spoolService.open(file))
+                .getMessage().contains("版本未知"));
+        assertArrayEquals(original, Files.readAllBytes(Path.of(file)));
+    }
+
+    @Test
+    public void testOpen_rejectsMixedSchemaWithoutRewriting() throws Exception {
+        spoolService.close();
+        try (var db = DriverManager.getConnection("jdbc:sqlite:" + file); var sql = db.createStatement()) {
+            sql.execute("CREATE TABLE unexpected(id INTEGER)");
+        }
+        byte[] original = Files.readAllBytes(Path.of(file));
+        assertTrue(assertThrows(IllegalStateException.class, () -> spoolService.open(file))
+                .getMessage().contains("历史结构不匹配"));
+        assertArrayEquals(original, Files.readAllBytes(Path.of(file)));
+    }
+
+    @Test
+    public void testOpen_rejectsSymlinkAndAlias() throws Exception {
+        Path actual = Path.of(file);
+        Path link = actual.resolveSibling("symlink.db");
+        Files.createSymbolicLink(link, actual.getFileName());
+        var other = new IotDeviceMessageSpoolServiceImpl();
+        assertTrue(assertThrows(IllegalStateException.class, () -> other.open(link.toString()))
+                .getMessage().contains("软链接"));
+        Path alias = actual.resolveSibling("hardlink.db");
+        Files.createLink(alias, actual);
+        assertTrue(assertThrows(IllegalStateException.class, () -> other.open(alias.toString()))
+                .getMessage().contains("硬链接"));
+    }
+
+    @Test
+    public void testSend_replacedDatabaseRejectsDirectSend() throws Exception {
+        Path actual = Path.of(file);
+        Files.move(actual, actual.resolveSibling("original.db"));
+        Files.createFile(actual);
+        assertServiceException(() -> spoolService.sendSpoolableMessage(buildMessage("m1"), T1),
+                DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
+        verifyNoInteractions(deviceMessageProducer);
+        assertEquals(0, Files.size(actual));
+    }
+
+    @Test
+    public void testOwnership_detectsReplacedLockMarker() throws Exception {
+        var path = Path.of(file).resolveSibling("marker-check.db");
+        try (SpoolFileOwnership ownership = SpoolFileOwnership.acquire(path.toString())) {
+            Path marker = path.resolveSibling(path.getFileName() + ".owner.lock");
+            Files.move(marker, marker.resolveSibling("moved-marker"));
+            Files.createFile(marker);
+            assertThrows(IOException.class, ownership::verify);
+        }
+    }
+
+    @Test
+    public void testDestroy_keepsLockWhileWorkerFinishes() throws Exception {
+        ReflectUtil.setFieldValue(spoolService, "spooling", true);
+        spoolService.sendSpoolableMessage(buildMessage("shutdown"), T1);
+        spoolService.close();
+
+        var schedulingService = new IotDeviceMessageSpoolServiceImpl();
+        gatewayProperties.getSpool().setFile(file);
+        ReflectUtil.setFieldValue(schedulingService, "gatewayProperties", gatewayProperties);
+        ReflectUtil.setFieldValue(schedulingService, "messageBus", mock(IotMessageBus.class));
+        ReflectUtil.setFieldValue(schedulingService, "deviceMessageProducer", deviceMessageProducer);
+        var sending = new CountDownLatch(1);
+        var interrupted = new CountDownLatch(1);
+        var releaseSender = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            sending.countDown();
+            try {
+                releaseSender.await();
+            } catch (InterruptedException e) {
+                interrupted.countDown();
+                releaseSender.await();
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        }).when(deviceMessageProducer).sendDeviceMessageConfirmed(any());
+        schedulingService.init();
+        Thread shutdown = new Thread(schedulingService::destroy);
+        try {
+            assertTrue(sending.await(5, TimeUnit.SECONDS));
+            shutdown.start();
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertThrows(IOException.class, () -> SpoolFileOwnership.acquire(file));
+        } finally {
+            releaseSender.countDown();
+            shutdown.join(7000);
+            schedulingService.destroy();
+        }
+        try (SpoolFileOwnership next = SpoolFileOwnership.acquire(file)) {
+            next.verify();
+        }
     }
 
     private long getCount() {

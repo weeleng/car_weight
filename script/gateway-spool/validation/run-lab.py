@@ -53,7 +53,8 @@ def prepare_probe(args, directory):
     (directory / "no-type.yaml").write_text("\n".join(lines) + "\n")
     cp = f"{libs}/BOOT-INF/classes:{libs}/BOOT-INF/lib/*"
     command(["javac", "--release", "17", "-proc:none", "-cp", cp, "-d", str(classes),
-             str(LAB / "fixtures/GatewayProbe.java"), str(LAB / "fixtures/LegacyShapes.java")])
+             str(LAB / "fixtures/GatewayProbe.java"), str(LAB / "fixtures/LegacyShapes.java"),
+             str(LAB / "fixtures/SpoolRabbitFixture.java")])
     command(["java", "-cp", f"{classes}:{cp}", "labprobe.LegacyShapes",
              str(directory / "s2.db"), str(directory / "s1.db")])
     with args.gateway.open("rb") as source:
@@ -101,6 +102,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--gateway", type=Path, required=True, help="existing Gateway exec JAR from the source under test")
+    parser.add_argument("--legacy-gateway", type=Path,
+                        help="run production remediation matrix against --gateway and compare to this 02A original JAR")
     parser.add_argument("--group", choices=list("ABCD"), action="append")
     parser.add_argument("maven", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -122,14 +125,18 @@ def main():
     os.environ.update(RABBITMQ_DEFAULT_USER=env["LAB_MQ_USER"],
                       RABBITMQ_DEFAULT_PASS=env["LAB_MQ_PASSWORD"], RABBITMQ_DEFAULT_VHOST="fixture")
     images = {"rabbit": "rabbitmq:4.2", "redis": "redis:7.4", "gateway": "eclipse-temurin:21-jre"}
-    groups = args.group or list("ABCD")
+    if args.legacy_gateway and args.group:
+        parser.error("--legacy-gateway and --group are mutually exclusive")
+    if args.legacy_gateway:
+        args.legacy_gateway = args.legacy_gateway.resolve(strict=True)
+    groups = [] if args.legacy_gateway else (args.group or list("ABCD"))
     command(["bash", str(ROOT / "script/shell/check-build-toolchain.sh")])
     metadata = dict(source=command(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                                    stdout=subprocess.PIPE).stdout.strip(),
                     gateway=str(args.gateway), sha256=prepare_probe(args, args.evidence_dir),
                     java=command(["java", "-version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.strip(),
                     maven=command(["mvn", "-v"], stdout=subprocess.PIPE).stdout.strip())
-    if not any(g in "AC" for g in groups):
+    if not args.legacy_gateway and not any(g in "AC" for g in groups):
         evidence(args.evidence_dir / "environment.json", metadata)
         return run_groups(args, groups, env)
 
@@ -150,12 +157,26 @@ def main():
         docker("network", "connect", "--alias", "rabbit", gateway_network, env["LAB_RABBIT"])
         docker("network", "connect", "--alias", "redis", gateway_network, env["LAB_REDIS"])
         metadata["gateway_network"] = dict(name=gateway_network, internal=True)
+        if args.legacy_gateway:
+            with args.legacy_gateway.open("rb") as source:
+                metadata["legacy_gateway"] = str(args.legacy_gateway)
+                metadata["legacy_sha256"] = hashlib.file_digest(source, "sha256").hexdigest()
         metadata.update(
             rabbit=wait_for(lambda: docker("exec", env["LAB_RABBIT"], "rabbitmq-diagnostics", "-q", "server_version")),
             redis=wait_for(lambda: docker("exec", env["LAB_REDIS"], "redis-server", "--version")),
             images={k: docker("image", "inspect", v, "--format", "{{json .RepoDigests}}") for k, v in images.items()},
             redis_persistence=docker("exec", env["LAB_REDIS"], "redis-cli", "CONFIG", "GET", "save", "appendonly", "appendfsync"))
         evidence(args.evidence_dir / "environment.json", metadata)
+        if args.legacy_gateway:
+            output = args.evidence_dir / "remediation"
+            output.mkdir()
+            fixture_command = ["python3", str(LAB / "fixtures/remediation.py")]
+            fixture_env = {**env, "LAB_OUT": str(output),
+                           "LAB_LEGACY_GATEWAY": str(args.legacy_gateway)}
+            with (output / "runner.log").open("w") as log:
+                result = subprocess.run(fixture_command, env=fixture_env, stdout=log, stderr=subprocess.STDOUT)
+            evidence(output / "runner-result.json", dict(command=fixture_command, exit_code=result.returncode))
+            return result.returncode
         return run_groups(args, groups, env)
     finally:
         for kind in ("RABBIT", "REDIS"):

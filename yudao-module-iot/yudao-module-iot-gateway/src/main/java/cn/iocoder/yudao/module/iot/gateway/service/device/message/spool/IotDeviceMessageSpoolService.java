@@ -15,7 +15,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -39,8 +38,8 @@ import static cn.iocoder.yudao.module.iot.gateway.enums.ErrorCodeConstants.DEVIC
  *
  * @author 芋道源码
  */
-@Service
 @Slf4j
+// 保留旧版供历史兼容审查，由确认版服务统一接管，禁止扫描为 Bean。
 public class IotDeviceMessageSpoolService {
 
     /**

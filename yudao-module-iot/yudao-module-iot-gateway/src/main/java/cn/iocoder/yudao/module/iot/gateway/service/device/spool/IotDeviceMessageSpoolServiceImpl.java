@@ -1,6 +1,5 @@
 package cn.iocoder.yudao.module.iot.gateway.service.device.spool;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.collection.SetUtils;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
@@ -23,12 +22,12 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -51,7 +50,7 @@ import static cn.iocoder.yudao.module.iot.gateway.enums.ErrorCodeConstants.DEVIC
  * 消息数、字节数（消息 JSON 的 UTF-8 字节数）在内存中累计，打开时从文件统计
  * <p>
  * 发送：直发、补传都经 {@link IotMessageBus#postConfirmed} 确认发送，各消息总线自行保证「返回即 broker 已接收」；
- * Local 消息总线为进程内，没有断网，不启用。确认只到 broker，不保证平台已经处理（入库），也不去重：
+ * 开启暂存需要可确认发送的外部消息总线。确认只到 broker，不保证平台已经处理（入库），也不去重：
  * 发送成功但删除前进程退出，重启后会再补传一次
  *
  * @author 芋道源码
@@ -94,8 +93,10 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
     private IotMessageBus messageBus;
 
     private boolean enabled;
+    private boolean stopping;
+    private SpoolFileOwnership ownership;
     /**
-     * SQLite 的单连接数据源：打开失败（例如文件损坏）时为空，此时只能直发，直发失败时拒绝
+     * SQLite 的单连接数据源，与文件所有权同生命周期。
      */
     private SingleConnectionDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
@@ -118,7 +119,7 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
      */
     private final Object lock = new Object();
 
-    private ScheduledExecutorService drainExecutor;
+    private ScheduledThreadPoolExecutor drainExecutor;
     private long lastExpireTime;
 
     @PostConstruct
@@ -127,52 +128,53 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
         if (!properties.isEnabled()) {
             return;
         }
-        // Local 消息总线：进程内发布，没有网络断开，不需要也不启用离线暂存，保持原来的直发
         if (messageBus instanceof IotLocalMessageBus) {
-            log.warn("[init][Local 消息总线为进程内，离线暂存不生效]");
-            return;
+            throw new IllegalStateException("已启用离线暂存，但 Local 消息总线不支持外部确认发送");
         }
-        // 校验配置：配额不合法、消息总线不能确认发送时，启动失败，避免消息只进不出
         if (properties.getMaxSize().toBytes() <= 0 || properties.getMaxAge().isNegative()
-                || properties.getMaxAge().isZero()) {
-            throw new IllegalStateException(StrUtil.format("离线暂存的 max-size({})、max-age({}) 必须大于 0",
-                    properties.getMaxSize(), properties.getMaxAge()));
+                || properties.getMaxAge().isZero() || properties.getDrainRate() <= 0) {
+            throw new IllegalStateException("离线暂存的 max-size、max-age、drain-rate 必须大于 0");
         }
         messageBus.validateConfirmable();
-        enabled = true;
-        // 1. 打开暂存：失败时不删除文件，只能直发，直发失败时拒绝
+        open(properties.getFile());
         try {
-            open(properties.getFile());
+            drainExecutor = new ScheduledThreadPoolExecutor(1, runnable -> {
+                Thread thread = new Thread(runnable, "iot-gateway-spool-drain");
+                thread.setDaemon(true);
+                return thread;
+            }) {
+                @Override
+                protected void terminated() {
+                    closeStorage();
+                }
+            };
+            drainExecutor.scheduleWithFixedDelay(this::drain, DRAIN_INTERVAL_MILLIS, DRAIN_INTERVAL_MILLIS,
+                    TimeUnit.MILLISECONDS);
+            enabled = true;
             log.info("[init][离线暂存({}) 已打开，积压 {} 条，{} 字节]", properties.getFile(), count, bytes);
-        } catch (Exception e) {
-            log.error("[init][离线暂存({}) 打开失败，文件已保留，需要人工处理；在此之前只能直发，直发失败时拒绝]",
-                    properties.getFile(), e);
-            return;
+        } catch (RuntimeException e) {
+            destroy();
+            throw e;
         }
-
-        // 2. 启动补传任务
-        drainExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "iot-gateway-spool-drain");
-            thread.setDaemon(true);
-            return thread;
-        });
-        drainExecutor.scheduleWithFixedDelay(this::drain, DRAIN_INTERVAL_MILLIS, DRAIN_INTERVAL_MILLIS,
-                TimeUnit.MILLISECONDS);
     }
 
     @PreDestroy
     public void destroy() {
-        if (drainExecutor != null) {
-            drainExecutor.shutdownNow();
-            try {
-                if (!drainExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    log.warn("[destroy][补传任务未在 5 秒内结束]");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        synchronized (lock) {
+            stopping = true;
         }
-        close();
+        if (drainExecutor == null) {
+            closeStorage();
+            return;
+        }
+        drainExecutor.shutdownNow();
+        try {
+            if (!drainExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warn("[destroy][补传任务未在 5 秒内结束；保留数据库连接及文件锁，待补传任务退出后释放]");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override
@@ -190,6 +192,17 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
 
     @Override
     public void sendSpoolableMessage(IotDeviceMessage message, long spoolTime) {
+        synchronized (lock) {
+            if (stopping || jdbcTemplate == null) {
+                throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
+            }
+            try {
+                ownership.verify();
+            } catch (IOException e) {
+                log.error("[sendSpoolableMessage][离线暂存路径校验失败]", e);
+                throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
+            }
+        }
         // 1. 直发：没有积压
         if (!spooling) {
             try {
@@ -223,7 +236,7 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
         long maxSize = gatewayProperties.getSpool().getMaxSize().toBytes();
         synchronized (lock) {
             // 2.1 校验暂存可用、未满
-            if (jdbcTemplate == null) {
+            if (stopping || jdbcTemplate == null) {
                 throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
             }
             if (bytes + size > maxSize) {
@@ -232,8 +245,9 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
             }
             // 2.2 写入
             try {
+                verifyOwnership();
                 insert(spoolTime, json, size);
-            } catch (DataAccessException e) {
+            } catch (DataAccessException | IllegalStateException e) {
                 log.error("[append][消息({}) 写入离线暂存失败]", message.getId(), e);
                 throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "写入暂存失败");
             }
@@ -380,60 +394,97 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
     // ========== SQLite 存储 ==========
 
     /**
-     * 打开暂存文件：校验文件完整、建表，统计已暂存的消息
-     *
-     * @param file 文件路径
-     * @throws RuntimeException 打开失败或文件损坏：不删除文件，需要人工处理
+     * 启动前确认文件所有权、历史 Schema 及可写性，失败时保留原始数据。
      */
     void open(String file) {
         synchronized (lock) {
-            // 1. 创建单连接的数据源：所有读写在锁内串行，使用同一个连接
-            FileUtil.mkParentDirs(file);
-            SingleConnectionDataSource newDataSource = new SingleConnectionDataSource("jdbc:sqlite:" + file, true);
-            JdbcTemplate newJdbcTemplate = new JdbcTemplate(newDataSource);
-            try {
-                newJdbcTemplate.execute("PRAGMA busy_timeout = 5000");
-                // 2. 校验文件完整：损坏时不使用，也不删除
-                String result = newJdbcTemplate.queryForObject("PRAGMA quick_check", String.class);
-                if (!"ok".equals(result)) {
-                    throw new IllegalStateException("SQLite 文件校验失败：" + result);
-                }
-                // 3. WAL + FULL：每次提交都刷盘，返回时已经持久化
-                newJdbcTemplate.execute("PRAGMA journal_mode = WAL");
-                newJdbcTemplate.execute("PRAGMA synchronous = FULL");
-                newJdbcTemplate.execute("CREATE TABLE IF NOT EXISTS iot_device_message_spool ("
-                        + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        + "spool_time INTEGER NOT NULL, "
-                        + "size INTEGER NOT NULL, "
-                        + "message TEXT NOT NULL)");
-                newJdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_iot_device_message_spool_time "
-                        + "ON iot_device_message_spool (spool_time)");
-                // 4. 统计已暂存的消息：有积压时，处于暂存中
-                long[] countAndBytes = newJdbcTemplate.queryForObject(
-                        "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM iot_device_message_spool", COUNT_BYTES_ROW_MAPPER);
-                count = countAndBytes[0];
-                bytes = countAndBytes[1];
-            } catch (RuntimeException e) {
-                newDataSource.destroy();
-                throw e;
+            if (ownership != null) {
+                throw new IllegalStateException("离线暂存已打开");
             }
-            dataSource = newDataSource;
-            jdbcTemplate = newJdbcTemplate;
-            spooling = count > 0;
+            SpoolFileOwnership newOwnership = null;
+            SingleConnectionDataSource newDataSource = null;
+            try {
+                newOwnership = SpoolFileOwnership.acquire(file);
+                String url = "jdbc:sqlite:" + newOwnership.database().toUri().toASCIIString();
+                SingleConnectionDataSource readOnly = new SingleConnectionDataSource(url + "?mode=ro", true);
+                try {
+                    SpoolStartupValidator.validate(new JdbcTemplate(readOnly));
+                } finally {
+                    readOnly.destroy();
+                }
+
+                newOwnership.verify();
+                newDataSource = new SingleConnectionDataSource(url + "?mode=rw", true);
+                JdbcTemplate jdbc = new JdbcTemplate(newDataSource);
+                jdbc.execute("PRAGMA busy_timeout = 5000");
+                jdbc.queryForObject("PRAGMA locking_mode = EXCLUSIVE", String.class);
+                // SQLite 自身的持久独占锁兼顾不识别旁路锁的旧代码。网络等待不持有 SQLite 写事务。
+                jdbc.execute("BEGIN EXCLUSIVE");
+                jdbc.execute("COMMIT");
+                if (!SpoolStartupValidator.validate(jdbc)) {
+                    if (!"wal".equalsIgnoreCase(jdbc.queryForObject("PRAGMA journal_mode = WAL", String.class))) {
+                        throw new IllegalStateException("离线暂存 SQLite 无法启用 WAL");
+                    }
+                    SpoolStartupValidator.initialize(jdbc);
+                }
+                // 即使文件可读，也须证明目录和数据库支持写事务。
+                jdbc.execute("PRAGMA synchronous = FULL");
+                jdbc.execute("BEGIN IMMEDIATE");
+                jdbc.execute("COMMIT");
+                newOwnership.verify();
+                long[] totals = jdbc.queryForObject("SELECT COUNT(*), COALESCE(SUM(size), 0) "
+                        + "FROM iot_device_message_spool", COUNT_BYTES_ROW_MAPPER);
+                count = totals[0];
+                bytes = totals[1];
+                spooling = count > 0;
+                stopping = false;
+                ownership = newOwnership;
+                dataSource = newDataSource;
+                jdbcTemplate = jdbc;
+            } catch (IOException | RuntimeException e) {
+                try {
+                    if (newDataSource != null) {
+                        newDataSource.destroy();
+                    }
+                } finally {
+                    release(newOwnership);
+                }
+                throw new IllegalStateException("离线暂存不可用：" + file + "，" + e.getMessage(), e);
+            }
         }
     }
 
-    /**
-     * 关闭暂存文件
-     */
     void close() {
+        destroy();
+    }
+
+    private void closeStorage() {
         synchronized (lock) {
-            if (dataSource == null) {
-                return;
+            if (dataSource != null) {
+                dataSource.destroy();
+                dataSource = null;
+                jdbcTemplate = null;
             }
-            dataSource.destroy();
-            dataSource = null;
-            jdbcTemplate = null;
+            release(ownership);
+            ownership = null;
+        }
+    }
+
+    private static void release(SpoolFileOwnership owner) {
+        if (owner != null) {
+            try {
+                owner.close();
+            } catch (IOException e) {
+                log.error("[close][离线暂存文件锁释放失败]", e);
+            }
+        }
+    }
+
+    private void verifyOwnership() {
+        try {
+            ownership.verify();
+        } catch (IOException e) {
+            throw new IllegalStateException("离线暂存文件所有权校验失败", e);
         }
     }
 
@@ -460,6 +511,7 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
             if (jdbcTemplate == null) {
                 return records;
             }
+            verifyOwnership();
             jdbcTemplate.query("SELECT id, message FROM iot_device_message_spool ORDER BY id LIMIT ?",
                     rs -> {
                         records.put(rs.getLong(1), rs.getString(2));
@@ -480,6 +532,7 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
                 return 0;
             }
             // 1. 统计要删除的消息数、字节数：在锁内执行，与删除之间不会有其它写入
+            verifyOwnership();
             long[] deleted = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM iot_device_message_spool WHERE " + where,
                     COUNT_BYTES_ROW_MAPPER, value);
