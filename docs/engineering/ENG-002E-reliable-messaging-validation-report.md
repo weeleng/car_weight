@@ -115,3 +115,70 @@ bash "$r/graph/graph.sh"
 未执行真实设备 ACK 链、正式 Server/Gateway 消费装配、原生数据库提交确认帧丢失、正式消费失败调度器与 DLX 保障、多节点 Quorum 选举/故障、完整仓库测试、物理备份恢复及真实外部副作用核对。生产负载、持久性参数、容量阈值、跨库同一物理实例故障风险和消息链恢复目标仍需实证。真 Broker + 独立合成 Schema 通过支持进一步实施验证，当前证据不足以关闭 DEC-006 或 BLOCK-003。BLOCK-001 与 BLOCK-007 及 ENG-002D-02R 各自继续跟踪。
 
 正式实施须单独批准契约键、版本迁移、归属与模块边界、最小权限拓扑、L2 ACK 链路、受控重放与审计、恢复和回滚准入。回滚以反向提交撤销独立工程和报告，保留获批设计。现场排查只使用本轮隔离日志，临时数据随已核验标签的容器及匿名卷清理。差异范围、文档链接、Git 空白及常见凭证模式已经检查。
+
+## 6. ENG-002E-02R 合并前补充审查
+
+上一轮审核交付及本轮起始为 `16ff3321b3744186356983f0563bdbaa1305c798`。检查 `git status --short --branch`、`git fetch --no-tags origin refs/heads/master-jdk17:refs/remotes/origin/master-jdk17 refs/heads/engineering/eng-002e:refs/remotes/origin/engineering/eng-002e` 和 `git rev-parse HEAD origin/master-jdk17 origin/engineering/eng-002e`。主分支仍是 `d9230a63521df3f4f8f53a061f6c070954fa8d7f`。本轮实施提交 `e9bbd35b0378b38b4a34e56ec22dc5facb07a6b0`，报告独立提交。变更为独立验证工程的 `Broker.java`、`Protocol.java`、`Relay.java`、`Store.java`、`LabFixture.java`、`PublishTest.java`、`TransactionTest.java` 及本报告。保留原工作区未跟踪环境报告。现有 SQL 夹具唯一约束、生产代码和装配保持原样。
+
+### Relay 分类与安全状态
+
+| 证据 | 结果 |
+| --- | --- |
+| 管理端口连接失败，实际 RabbitMQ 管理服务返回 HTTP 401，或受控 HTTP 返回无法解释的拓扑结构 | `TOPOLOGY_UNKNOWN`。连接失败保留 IOException 因果，HTTP 状态和缺失响应结构走专用运行时异常。测试核对发前未投递、SQL 未标记 PUBLISHED |
+| 有效拓扑已查证，但 AMQP 发布连接失败/确认超时 | `TRANSPORT_UNKNOWN`。复验重现真实发布连接不可用，SQL 保持可重试，无确认时不标记 PUBLISHED |
+| Broker Confirm 已成功，但后验拓扑连接失效 | `TOPOLOGY_UNKNOWN`，SQL 未标记 PUBLISHED。Broker 已投递由独立 Channel 读取验证 |
+| Confirm 后数据库停机，或后验拓扑无法确认且结果写入时数据库停机 | 返回带原 messageId、attemptId、请求失败分类及原异常的 `DB_UPDATE_UNKNOWN`。不再发起第二次状态写入。数据库恢复后查证原行仍为 PUBLISHING，保留原字节与身份，失败原因尚未持久化 |
+| 过期回收、旧回调、重复回调 | 由租约和 version/attempt/owner 条件守卫。回收后使用新 attempt 保留原 ID，旧回调更新零行，同尝试重复回调无副作用。同 ID 的两份 Broker 投递及原字节可核对 |
+| 第三次租约过期与预算耗尽同时发生 | 原 Outbox 变为 DEAD，失败原因为 `LEASE_EXHAUSTED`，无第四次领取、无投递、原始事件仍在 |
+| 探针返回另一 Broker 标识 | 原样抛出不变量异常，PUBLISHING 等待租约处理。无普通重试记录、无投递、无 PUBLISHED |
+
+`DB_UPDATE_UNKNOWN` 是写入方观测状态。它无法证明数据库尚未提交，也不等于已经写进 Outbox 的失败原因。测试停止实际 MySQL 容器，验证数据库无法开始结果更新。实际更新已发送但数据库提交确认报文丢失仍待验证。
+
+### T1 单意图复核
+
+从夹具原始 `e-<id>` 派生预期 `m-<id>`。重复确认前在同一读事务核验原始 ID 与原始字节，再查找同一事件或预期消息 ID 匹配的意图。只允许一个符合契约的意图。逐项校验 Outbox 外层事件和消息 ID、JSON 内层事件和消息 ID、生产者、信封版本、拓扑版本、序列化 payload 的 SHA-256 以及内层原始字节。
+
+新增 **15 项 T1 JUnit**，包括正常重复、12 种缺失、错配或损坏意图，另有原始载荷冲突及错误请求消息 ID。负向用例逐一核查不可成功 L2 ACK、原始字节和摘要不变，且原始 ACK 观测状态未被改写。内部 ID、版本及字节损坏时会重算外层摘要以证明单靠哈希一致不足。既有唯一约束不变。此规则只适用于测试单意图，正式多意图契约和真设备 ACK 继续独立审批。
+
+### 实际运行及复验记录
+
+使用 JDK 21.0.13.1、Maven 3.9.12、MySQL 8.4.13、RabbitMQ 4.2.9，沿用第 2 节固定镜像摘要和独立运行器。实际执行命令如下。
+
+```bash
+r=/workspace/eng002e02r-regression
+dev=/workspace/car-weight-dev-jdk17
+export JAVA_HOME=/workspace/car-weight-eng002a-validation/jdk
+export PATH="$JAVA_HOME/bin:$dev/apache-maven-3.9.12/bin:$PATH"
+python3 script/messaging/validation/run-lab.py --evidence-dir "$r/lab" -- \
+  -s "$dev/maven-settings.xml" "-Dmaven.repo.local=$r/m2-iot"
+python3 script/messaging/validation/run-lab.py --evidence-dir "$r/final" -- \
+  -s "$dev/maven-settings.xml" "-Dmaven.repo.local=$r/m2-iot"
+```
+
+首轮 A/C/D 通过，B 有 5 项错误，运行器退出 1。Broker 重启后的首次 AMQP 握手与相邻测试遇到 EOF，时段与容器启动日志重合。补充测试端监听就绪探针后重新从新容器运行四组。原始 XML、Broker 重启日志和退出码保留在 `$r/lab` 与 `lab.exit`。
+
+| 复验组 | 原有 | 新增 | 实际测试 | 失败 / 错误 / 跳过 | 退出 |
+| --- | ---: | ---: | ---: | --- | --- |
+| A 事务与幂等 | 6 | 15 | 21 | 0 / 0 / 0 | 0 |
+| B Relay 与 Broker | 7 | 7 | 14 | 0 / 0 / 0 | 0 |
+| C 消费及 ACK | 7 | 0 | 7 | 0 / 0 / 0 | 0 |
+| D 恢复与对账 | 4 | 0 | 4 | 0 / 0 / 0 | 0 |
+| 总计 | 24 | 22 | 46 | 0 / 0 / 0 | 0 |
+
+`$r/final` 保存各组实际命令、Surefire XML、分类行快照、有效依赖树及容器日志。独立工程验证 23 个项目 class，均为 major 61。预期故障的退出码仍按原场景分别校验。报告不把断言计为 JUnit 数量。
+
+### 工程回归、剩余范围与回滚
+
+工程回归源自已审核交付 SHA 的隔离归档，生产源码与本轮实施提交一致。执行第 4 节相同的构建、采证、检查及隔离运行命令，目录为 `$r`。默认构建及 IoT 构建跳过完整套件，定向测试和实际环境验证另行执行。
+
+| 检查 | 本轮结果 |
+| --- | --- |
+| 默认 Reactor | 44 个项目成功，约 62 秒，退出 0，1,149 个项目 class 为 major 61 |
+| IoT Reactor | 23 个项目成功，约 71 秒，退出 0，1,783 个项目 class 为 major 61 |
+| Gateway | 三个 Surefire XML 合计 23 项通过，0 失败/错误/跳过。独立构件及最小启动通过 |
+| ENG-002B | 17 份实际有效 POM 和依赖树，边界审计退出 0，检查器单元用例 23 项通过 |
+| ENG-002C | 45 项隔离检查及 9 项 JUnit 通过，退出 0 |
+| ENG-002D | 原有 40 项通过，退出 0。ENG-002D-02R 继续独立 |
+| Server / Gateway | Server 27.628 秒就绪，Gateway 13.185 秒就绪。Server 前后各 67 条抽样 Bean 关系排序后完全一致。Server 和 Gateway JAR 分别保留 258 和 212 个内嵌运行库，均无独立验证工程。启动后主动停止退出 143 |
+
+未执行远程任务分支 CI、真实设备 ACK、生产拓扑变更时的跨系统一致性、多节点 Quorum HA、真实数据库提交响应截断、物理备份恢复和完整仓库测试。本轮没有新增生产上线依据，DEC-006 和 BLOCK-003 继续开放。生产接管仍需正式契约、迁移、权限与运行装配审批。回滚以反向提交撤销本轮七个验证文件及报告的变更。隔离环境证据留在 `/workspace/eng002e02r-regression`，现有用户环境报告未纳入差异。
