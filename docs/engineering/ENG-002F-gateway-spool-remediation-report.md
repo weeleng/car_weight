@@ -100,3 +100,63 @@ mvn -B -ntp -C -s "$dev/maven-settings.xml" "-Dmaven.repo.local=$r/m2-iot" \
 回滚先停接收、关闭 worker、验证 SQLite 和旁路锁释放，再做一致性备份及对账。旧版暂存开启会恢复原阻断，过渡只能使用已批准的停接收方案，或在普通消息专用环境按审批关闭暂存。新版运行期间有新增或投递时不得用旧备份覆盖现有历史文件，应按已接收、已发布及未交接记录前向修复。原 v0 结构保留，未启动任何正式数据库迁移。
 
 BLOCK-001、BLOCK-003、BLOCK-007 和 DEC-006、DEC-016 保持开放。BLOCK-001 仍需实际部署的停旧、单所有者、运维卷及拓扑验证，存量一致性、未确认关键数据保全及正式交接完整性，以及人工签署。真实设备、跨主机、物理掉电、物理磁盘故障、生产容量与实际生产库恢复未执行。
+
+## ENG-002F-02B-1R 关闭竞争补充验证
+
+本轮起始 `a14fcded4475d473d4075af1f74cee1f2b96a729`，本地和远程 `engineering/eng-002f` 一致。远程 `master-jdk17` 仍为祖先 `ff2182d4fe628899f00d122071accd6b02451348`。通过 `git status --short -b`、`git ls-remote`、按引用 fetch、`git rev-parse` 和 `git merge-base --is-ancestor` 检查。未跟踪的环境检查报告继续保留。
+
+实现变更仅涉及正式 Gateway 的 `IotDeviceMessageSpoolServiceImpl.java`。新增正式模块定向测试 `GatewaySpoolShutdownTest.java`，合计 7 个 JUnit 用例。独立 `fixtures/remediation.py` 以 Gateway 的补传完成事件作为确认丢失用例的关停等待条件。源码与 JUnit 提交为 `bb9cea7dd84acfca9c6cc9e2f0aaa0c7119e6631`。
+
+### 确认的问题和修复
+
+先用原基线生产源码执行新增用例，7 项中有 2 项失败，Maven 退出 1。再用最终测试写法和真实调度器初始化方式，在独立的原基线副本单独复现这 2 项，Maven 同样退出 1。失败用例用闩锁暂停已通过入口检查的直发，一处暂停在生产者真正发送前，另一处暂停在结果未知的网络窗口。此时 `destroy()` 已返回，原代码允许第二接管者取得文件。当旧回调之后返回失败时，既有追加路径会检查停止状态并拒绝写入。基线复现证明的是**文件过早交接**，未观察到旧回调误删或写入新接管者的 SQLite。
+
+修复后，直发在同一临界区检查停止状态并记录已准入的调用。停止先拒绝新调用，调用网络期间不持有 SQLite 事务或 Java 存储锁。已准入直发在结果处理结束前仍占用本代所有权，补传执行器终止且直发计数为零后才关闭 SQLite、释放锁。超过原有五秒补传等待预算，`destroy()` 可先返回，所有权继续保留。网络超时或结果未知且已进入停止状态时，追加被拒绝，调用方收到原有暂存不可用错误。关闭窗口内仍可能有已准入调用成功返回，前提是它实际收到了 Broker 确认。这个成功只代表现有消息总线的接收条件。停止前已经提交的 SQLite 追加仍按原接口返回成功，不构成 INGEST 提交或设备 L2 ACK。
+
+文件 Schema、消息身份、IoT Core 合同、生产部署、过期与永久拒绝政策均沿用基线。没有新增关键事件证据或 INGEST 接口。
+
+### 闩锁时序、行对账和故障证据
+
+| 用例 | 时序与可复核结果 |
+| --- | --- |
+| 直发过检查、尚未发送 | `direct-ack` 在生产者入口闩锁等待。执行 destroy 后，第二所有者失败，新请求 `late` 返回暂存不可用。解除闩锁后仅 `direct-ack` 模拟确认并成功返回，SQLite 0 → 0。随后可取得文件锁 |
+| 直发进行中、确认结果未知 | `direct-unknown` 在确认处阻塞，执行 destroy 后仍持锁。回调抛出受控异常，旧服务拒绝追加，SQLite 0 → 0。接管者写入 `successor-row` 后，旧实例仍拒绝，再开库仅有接管者的 1 行 |
+| 补传确认中断 | `unknown` 在网络确认处时执行 destroy。线程收到中断并报告确认结果未知，`unattempted` 未发送。SQLite 2 → 2，逐行 SQL ID 和原 JSON 一致，线程结束后所有权释放 |
+| 已确认与批量删除之间停止 | 闩锁保持已确认的 `confirmed` 回调尚未交回批处理。destroy 中断后继续保有锁，回调返回确认时仅删已确认前缀。SQLite 2 → 1，`tail` 的行 ID 和原 JSON 不变，未调用生产者 |
+| 五秒预算外 | 控制 `over-budget` 在补传线程里忽略首次中断。destroy 返回时执行器未终止，另一个实例和文件锁申请均失败。释放闩锁后线程退出，SQLite 1 → 1 且内容相等，继任实例随后可正常打开 |
+| 混合批次部分成功 | 五行依次为已确认、坏 JSON、永久拒绝、结果未知、尚未尝试。第一行依据确认删除，第二、三行沿用普通消息政策处理。第四行失败后停止该批，第四和第五行保留。SQLite 5 → 2，重启暂存服务后再次发送同一 `unknown` ID，未知结果仍保留原两行 |
+| DELETE 失败 | 真实 SQLite TEMP 触发器在批量 DELETE 注入 `SQLITE_CONSTRAINT_TRIGGER`。两条 Broker 模拟确认后主库仍 2 行，关库前后行 ID 和原 JSON 完全相同。重开后按 `ack-before-delete`、`other-confirmed` 重投，删除成功后余 0 行 |
+
+已确认行的删除、坏 JSON 和永久拒绝的跳过遵循现有普通消息政策。未知确认或未尝试的行没有被批量删除。删除失败引入的是至少一次语义下的重复窗口。由 SQLite 行对账与实际 Broker 结果分别判断，任何文件锁、SQLite 提交、模拟回执或 Broker 确认都不能代替 C-04 中的 INGEST 事务证明。
+
+### 实际回归
+
+隔离证据位于 `/workspace/eng002f02b1r`，Temurin JDK 21.0.13.1 与 Maven 3.9.12。默认和 IoT 构建分别执行 `run-build.sh default` 和 `run-build.sh iot`。两者执行 `clean install -Dmaven.test.skip=true`，测试单独运行。隔离 IoT 副本启用 IoT Reactor 并选择依赖、Core、Biz、Gateway 和所需模块，仓库内 POM 不变。Gateway exec JAR SHA-256 为 `26889992acf4c0a3e8f2c2b470650fea2566638a14d43a330bcb037ce6577032`。
+
+| 验证 | 实际结果及证据 |
+| --- | --- |
+| 原源码竞争对照 | 7 项中 2 失败，原源码实际调度复验 2/2 失败，两个命令均退出 1。见 `gateway-before.log`、`baseline-junit/`、`gateway-original-two.log` |
+| 修复后 Gateway | 107 项通过（新增 7、原定向和协议 100），0 失败、错误或跳过。退出 0，见 `gateway-after.log` 和隔离 IoT 副本 Surefire XML |
+| 默认及隔离 IoT Reactor | 分别 44、23 项，退出 0。生产 class 分别 1,149、1,786 个，均为 major 61。见 `*-build.log`、`*-bytecode.log` |
+| ENG-002E | 46 项通过，退出 0，见 `messaging/{A,B,C,D}/result.json` |
+| ENG-002F-02A | A/B/C/D 的 5/9/9/6 项共 29 项通过，0 失败、错误或跳过。退出 0，见 `02a-final/{A,B,C,D}/result.json` |
+| Server / Gateway 最小启动 | Server 33.998 秒、Gateway 14.488 秒就绪，主动停止均为 143。脚本退出 0，见 `smoke.log`、`server-smoke.log`、`gateway-smoke.log` |
+| 真实 Gateway 专项 | 10 项均实际执行。首轮 9 项通过、1 项失败，退出 1，观察 31 个 Gateway 子进程。修正停机等待条件后对失败项单独复跑通过，退出 0。见 `real/remediation/` 与 `real-confirm-retry/remediation/` |
+
+定向运行的核心命令如下，带隔离证据目录的 Maven settings 和构件缓存参数。
+
+```bash
+mvn -B -ntp -C -pl :yudao-module-iot-core,:yudao-module-iot-gateway -am \
+  -Dtest=GatewaySpoolShutdownTest,IotRabbitMQMessageBusConfirmTest,IotDeviceMessageSpoolServiceImplTest,IotDeviceMessageSpoolStoreTest,IotDeviceMessageServiceImplTest,IotHttpUpstreamHandlerTest,IotMqttUpstreamHandlerTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+python3 script/gateway-spool/validation/run-lab.py \
+  --gateway "$jar" --legacy-gateway "$oldjar" --evidence-dir "$r/real"
+```
+
+进程级中止验证使用正式 Gateway 与真实 RabbitMQ。批内第一条 `crash-stable-id` 已投递、SQLite 尚未批量删除时执行 SIGKILL，退出 137。重启读取原批次 21 行，按同一 ID 再次投递，成功后余额为 0。证据见 `real/remediation/rabbit-before-delete-kill-process.json`、`crash-before-delete-deliveries.json` 与 SQLite 行断言。
+
+确认丢失首轮已由 Broker 旁路看到重投，但夹具立即停止 Gateway，发布端最终记录 `Channel closed by application`，SQLite v0 行 ID 2 仍保存 `real-confirm-loss`。这是尚无可靠确认时的保留。夹具增加对 `resumeIfEmpty` 事件的有界等待，让测试验证已确认并完成删除后停机。用同一 Gateway exec JAR 和只选择该条用例的临时验证副本定向复跑，记录两次 `real-confirm-loss` 投递、确认丢失日志和最终 0 行。其余九项来自同一构件的首轮实测，未将两轮写成单次全绿。
+
+现有四组 02A 使用已审核原版构件执行，保持其基线装配断言。初次从 Git 归档副本调用 02A 时因缺少 Git 元数据未启动 JUnit，改在任务检出目录执行。关闭期间没有新增生产者超时或取消协议。若已准入直发长时间没有返回，仍在线的进程保持文件锁，直到调用结束或进程退出。
+
+物理断电、真实设备与正式 L2 ACK、真实生产卷跨主机接管、02B-2 的关键事件分类和持久交接仍未验证。BLOCK-001、BLOCK-003、BLOCK-007、DEC-006 和 DEC-016 保持开放，生产部署继续要求停用旧实例并独立验收。

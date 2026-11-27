@@ -264,6 +264,9 @@ def confirmation_loss():
         (path / "allow-confirms").touch()
         next_ = json.loads(eventually(lambda: broker("take")))
         assert first["id"] == next_["id"] == "real-confirm-loss"
+        # A queue delivery can precede the publisher confirm and the local DELETE.
+        # Let the actual Gateway report that the spool drained before stopping it.
+        eventually(lambda: "[resumeIfEmpty][离线暂存已补传完成" in docker("logs", name))
         assert finish(name)[0]["exit"] == 143
     assert snapshot(path) == []
     evidence(OUT / "confirm-loss-deliveries.json", [first, next_])
