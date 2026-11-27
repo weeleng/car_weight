@@ -94,6 +94,9 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
 
     private boolean enabled;
     private boolean stopping;
+    // 由 lock 保护。已获准的直发可完成，但仍属于当前文件所有者。
+    private int activeDirectSends;
+    private boolean drainStopped = true;
     private SpoolFileOwnership ownership;
     /**
      * SQLite 的单连接数据源，与文件所有权同生命周期。
@@ -145,9 +148,15 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
             }) {
                 @Override
                 protected void terminated() {
-                    closeStorage();
+                    synchronized (lock) {
+                        drainStopped = true;
+                        closeStorageIfIdle();
+                    }
                 }
             };
+            synchronized (lock) {
+                drainStopped = false;
+            }
             drainExecutor.scheduleWithFixedDelay(this::drain, DRAIN_INTERVAL_MILLIS, DRAIN_INTERVAL_MILLIS,
                     TimeUnit.MILLISECONDS);
             enabled = true;
@@ -162,9 +171,9 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
     public void destroy() {
         synchronized (lock) {
             stopping = true;
+            closeStorageIfIdle();
         }
         if (drainExecutor == null) {
-            closeStorage();
             return;
         }
         drainExecutor.shutdownNow();
@@ -192,6 +201,7 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
 
     @Override
     public void sendSpoolableMessage(IotDeviceMessage message, long spoolTime) {
+        boolean direct;
         synchronized (lock) {
             if (stopping || jdbcTemplate == null) {
                 throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
@@ -202,23 +212,31 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
                 log.error("[sendSpoolableMessage][离线暂存路径校验失败]", e);
                 throw exception(DEVICE_MESSAGE_SPOOL_REJECTED, "暂存文件不可用");
             }
-        }
-        // 1. 直发：没有积压
-        if (!spooling) {
-            try {
-                deviceMessageProducer.sendDeviceMessageConfirmed(message);
-                return;
-            } catch (IotMessageRejectedException ex) {
-                // 被永久拒绝（例如说超过大小限制）：写入暂存也补传不了，直接返回错误
-                log.error("[sendSpoolableMessage][消息({}) 被消息总线拒绝，不写入离线暂存：{}]", message.getId(), ex.getMessage());
-                throw exception(DEVICE_MESSAGE_REJECTED);
-            } catch (Exception ex) {
-                log.warn("[sendSpoolableMessage][消息({}) 发送消息总线失败，写入离线暂存：{}]", message.getId(), ex.getMessage());
+            direct = !spooling;
+            if (direct) {
+                activeDirectSends++;
             }
         }
+        if (!direct) {
+            append(message, spoolTime);
+            return;
+        }
 
-        // 2. 写入暂存
-        append(message, spoolTime);
+        try {
+            deviceMessageProducer.sendDeviceMessageConfirmed(message);
+        } catch (IotMessageRejectedException ex) {
+            // 被永久拒绝（例如说超过大小限制）：写入暂存也补传不了，直接返回错误
+            log.error("[sendSpoolableMessage][消息({}) 被消息总线拒绝，不写入离线暂存：{}]", message.getId(), ex.getMessage());
+            throw exception(DEVICE_MESSAGE_REJECTED);
+        } catch (Exception ex) {
+            log.warn("[sendSpoolableMessage][消息({}) 发送消息总线失败，写入离线暂存：{}]", message.getId(), ex.getMessage());
+            append(message, spoolTime);
+        } finally {
+            synchronized (lock) {
+                activeDirectSends--;
+                closeStorageIfIdle();
+            }
+        }
     }
 
     /**
@@ -458,16 +476,18 @@ public class IotDeviceMessageSpoolServiceImpl implements IotDeviceMessageSpoolSe
         destroy();
     }
 
-    private void closeStorage() {
-        synchronized (lock) {
-            if (dataSource != null) {
-                dataSource.destroy();
-                dataSource = null;
-                jdbcTemplate = null;
-            }
-            release(ownership);
-            ownership = null;
+    // 调用方持有 lock。关闭后才允许新进程获得文件所有权。
+    private void closeStorageIfIdle() {
+        if (!stopping || !drainStopped || activeDirectSends != 0) {
+            return;
         }
+        if (dataSource != null) {
+            dataSource.destroy();
+            dataSource = null;
+            jdbcTemplate = null;
+        }
+        release(ownership);
+        ownership = null;
     }
 
     private static void release(SpoolFileOwnership owner) {
