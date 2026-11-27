@@ -129,7 +129,7 @@ public class IotGatewayProperties {
      * 离线暂存配置：网关到消息总线不可用时，把各协议的属性、事件、批量上报暂存到本地 SQLite，恢复后按顺序补传
      * <p>
      * 支持 Redis、Kafka、RocketMQ、RabbitMQ 消息总线，经 {@link cn.iocoder.yudao.module.iot.core.messagebus.core.IotMessageBus#postConfirmed}
-     * 确认发送；Local 为进程内，没有断网，不生效。确认只到 broker，不保证平台已经处理（入库）
+     * 确认发送；开启暂存需要支持外部确认的消息总线。确认只到 broker，不保证平台已经处理（入库）
      */
     @Data
     public static class SpoolProperties {
